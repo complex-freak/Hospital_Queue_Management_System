@@ -1,0 +1,77 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+.env
+.env/
+.env.*     # optional, for different environments like .env.dev, .env.prod
+
+# VS Code settings (optional, editor-specific)
+.vscode/
+
+# Python egg info
+*.egg-info/
+dist/
+build/
+
+# Alembic migrations cache
+alembic/versions/__pycache__/
+
+# SQLite database files (if used)
+*.sqlite3
+*.db
+
+# Logs
+*.log
+logs/
+*.pid
+
+# Coverage and testing
+htmlcov/
+.coverage
+.coverage.*
+.cache
+.nox/
+tox/
+pytest_cache/
+
+# Jupyter notebooks
+*.ipynb_checkpoints
+
+# IDE folders
+.idea/
+
+# Docker
+*.tar
+*.pid
+*.bak
+docker-compose.override.yml
+
+# PyInstaller
+*.manifest
+*.spec
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+
+# Pydantic schema cache
+__pydantic__/cache/
+
+# Sentry CLI (if used)
+.sentryclirc
+
+# Local backup files
+*~
+*.swp
+*.swo
+
+# macOS system files
+.DS_Store
+
+# Git-related
+.git/

@@ -1,0 +1,35 @@
+# Database
+sqlalchemy[asyncio]==1.4.46
+alembic==1.11.1
+asyncpg==0.28.0
+psycopg2-binary==2.9.6
+
+# Web Framework
+fastapi==0.95.2
+uvicorn[standard]==0.22.0
+python-multipart==0.0.6
+
+# Environment
+python-dotenv==1.0.0
+pydantic==1.10.9
+
+# Security
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+slowapi==0.1.8
+
+# Async Tasks
+celery==5.3.1
+redis==4.6.0
+
+# Monitoring
+sentry-sdk==1.25.1
+prometheus-client==0.17.1
+
+# Testing
+pytest==7.3.1
+pytest-asyncio==0.21.0
+pytest-mock==3.11.1
+factory-boy==3.2.1
+Faker==18.11.2
+coverage==7.2.7 
