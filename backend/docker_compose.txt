@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: queue_db
+    environment:
+      POSTGRES_DB: queue_management
+      POSTGRES_USER: queue_user
+      POSTGRES_PASSWORD: queue_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - queue_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queue_user -d queue_management"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: queue_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - queue_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: queue_backend
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://queue_user:queue_password@db:5432/queue_management
+      - SECRET_KEY=your-secret-key-here
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - TWILIO_ACCOUNT_SID=your-twilio-sid
+      - TWILIO_AUTH_TOKEN=your-twilio-token
+      - TWILIO_PHONE_NUMBER=your-twilio-phone
+      - FIREBASE_SERVER_KEY=your-firebase-key
+      - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - queue_network
+    volumes:
+      - .:/app
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        python -c 'import asyncio; from database import test_connection; asyncio.run(test_connection())' &&
+        echo 'Running migrations...' &&
+        alembic upgrade head &&
+        echo 'Starting server...' &&
+        uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+  # Nginx (optional, for production)
+  nginx:
+    image: nginx:alpine
+    container_name: queue_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - backend
+    networks:
+      - queue_network
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+
+networks:
+  queue_network:
+    driver: bridge

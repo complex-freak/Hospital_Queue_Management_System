@@ -8,12 +8,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { COLORS, FONTS } from '../constants/theme';
 
-// Import screens (these will be created shortly)
+// Import screens
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
 import QueueStatusScreen from '../screens/QueueStatusScreen';
 import AppointmentScreen from '../screens/AppointmentScreen';
+import AppointmentsScreen from '../screens/AppointmentsScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import HelpScreen from '../screens/HelpScreen';
 import SettingsScreen from '../screens/SettingsScreen';
@@ -29,6 +30,7 @@ export type AuthStackParamList = {
 export type MainTabParamList = {
     Home: undefined;
     QueueStatus: undefined;
+    Appointments: undefined;
     Notifications: undefined;
     Settings: undefined;
 };
@@ -37,6 +39,7 @@ export type RootStackParamList = {
     Auth: undefined;
     MainTabs: { screen?: keyof MainTabParamList };
     Appointment: undefined;
+    Appointments: undefined;
     Help: undefined;
 };
 
@@ -117,9 +120,20 @@ const MainTabNavigator = () => {
                 component={QueueStatusScreen}
                 options={{
                     headerTitle: t('queueStatus'),
-                    tabBarLabel: t('queueStatus'),
+                    tabBarLabel: t('queue'),
                     tabBarIcon: ({ color, size, focused }) => (
                         <Ionicons name={focused ? "time" : "time-outline"} size={size} color={color} />
+                    ),
+                }}
+            />
+            <MainTab.Screen
+                name="Appointments"
+                component={AppointmentsScreen}
+                options={{
+                    headerTitle: t('appointments'),
+                    tabBarLabel: t('appointments'),
+                    tabBarIcon: ({ color, size, focused }) => (
+                        <Ionicons name={focused ? "calendar" : "calendar-outline"} size={size} color={color} />
                     ),
                 }}
             />
@@ -174,6 +188,13 @@ const Navigation = () => {
                         <RootStack.Screen
                             name="Appointment"
                             component={AppointmentScreen}
+                            options={{
+                                headerShown: false,
+                            }}
+                        />
+                        <RootStack.Screen
+                            name="Appointments"
+                            component={AppointmentsScreen}
                             options={{
                                 headerShown: false,
                             }}

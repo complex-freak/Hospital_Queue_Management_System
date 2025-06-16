@@ -1,12 +1,22 @@
 export interface User {
     id: string;
     fullName: string;
+    firstName?: string;
+    lastName?: string;
     phoneNumber: string;
     isAuthenticated: boolean;
+    isProfileComplete?: boolean;
+    email?: string;
+    gender?: 'male' | 'female' | 'other';
+    dateOfBirth?: string;
+    address?: string;
+    emergencyContact?: string;
+    emergencyContactName?: string;
+    emergencyContactRelationship?: string;
 }
 
 export type ConditionType = 'emergency' | 'elderly' | 'child' | 'normal';
-export type Gender = 'male' | 'female';
+export type Gender = 'male' | 'female' | 'other';
 
 export interface Appointment {
     id: string;
@@ -19,7 +29,7 @@ export interface Appointment {
     currentPosition: number;
     estimatedTime: number;
     doctorName?: string;
-    status: 'waiting' | 'ongoing' | 'completed' | 'cancelled';
+    status: 'scheduled' | 'waiting' | 'ongoing' | 'completed' | 'cancelled';
     createdAt: string;
 }
 

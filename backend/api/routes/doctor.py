@@ -1,0 +1,396 @@
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_, func, desc
+from uuid import UUID
+from datetime import datetime
+
+from database import get_db
+from models import Patient, User, Doctor, Appointment, Queue, QueueStatus, UrgencyLevel
+from schemas import (
+    Queue as QueueSchema, 
+    Patient as PatientSchema,
+    Appointment as AppointmentSchema,
+    DoctorDashboardStats
+)
+from services import QueueService, NotificationService
+from api.dependencies import require_doctor, log_audit_event
+
+router = APIRouter()
+
+@router.get("/queue", response_model=List[QueueSchema])
+async def get_doctor_queue(
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get queue for current doctor (prioritized view)"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Get queue entries with patient info, ordered by priority and queue number
+        result = await db.execute(
+            select(Queue, Appointment, Patient)
+            .join(Appointment, Queue.appointment_id == Appointment.id)
+            .join(Patient, Appointment.patient_id == Patient.id)
+            .where(
+                and_(
+                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED]),
+                    Appointment.doctor_id == doctor.id
+                )
+            )
+            .order_by(
+                # Urgent cases first
+                Appointment.urgency_level.desc(),
+                # Then by queue number
+                Queue.queue_number
+            )
+        )
+        
+        queue_entries = []
+        for queue, appointment, patient in result.all():
+            queue_schema = QueueSchema.model_validate(queue)
+            # Add patient and appointment info to the response
+            queue_schema.patient = PatientSchema.model_validate(patient)
+            queue_schema.appointment = AppointmentSchema.model_validate(appointment)
+            queue_entries.append(queue_schema)
+        
+        return queue_entries
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch doctor queue"
+        )
+
+@router.get("/queue/next", response_model=Optional[QueueSchema])
+async def get_next_patient(
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get next patient in queue for current doctor"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Get next patient (highest priority, lowest queue number)
+        result = await db.execute(
+            select(Queue, Appointment, Patient)
+            .join(Appointment, Queue.appointment_id == Appointment.id)
+            .join(Patient, Appointment.patient_id == Patient.id)
+            .where(
+                and_(
+                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED]),
+                    Appointment.doctor_id == doctor.id
+                )
+            )
+            .order_by(
+                Appointment.urgency_level.desc(),
+                Queue.queue_number
+            )
+            .limit(1)
+        )
+        
+        queue_data = result.first()
+        if not queue_data:
+            return None
+        
+        queue, appointment, patient = queue_data
+        queue_schema = QueueSchema.model_validate(queue)
+        queue_schema.patient = PatientSchema.model_validate(patient)
+        queue_schema.appointment = AppointmentSchema.model_validate(appointment)
+        
+        return queue_schema
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch next patient"
+        )
+
+@router.post("/queue/{queue_id}/serve")
+async def mark_patient_served(
+    queue_id: UUID,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    notes: Optional[str] = None,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Mark patient as served"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Verify queue entry exists and belongs to this doctor
+        result = await db.execute(
+            select(Queue, Appointment, Patient)
+            .join(Appointment, Queue.appointment_id == Appointment.id)
+            .join(Patient, Appointment.patient_id == Patient.id)
+            .where(
+                and_(
+                    Queue.id == queue_id,
+                    Appointment.doctor_id == doctor.id
+                )
+            )
+        )
+        
+        queue_data = result.first()
+        if not queue_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Queue entry not found or not assigned to this doctor"
+            )
+        
+        queue_entry, appointment, patient = queue_data
+        
+        # Mark as served
+        await QueueService.mark_served(db, queue_id)
+        
+        # Update appointment status
+        appointment.status = "completed"
+        appointment.completed_at = datetime.utcnow()
+        if notes:
+            appointment.notes = notes
+        
+        await db.commit()
+        
+        # Send completion notification
+        background_tasks.add_task(
+            NotificationService.send_appointment_completion_notification,
+            patient.phone_number,
+            {
+                'patient_name': patient.full_name,
+                'doctor_name': f"Dr. {doctor.full_name}",
+                'queue_number': queue_entry.queue_number
+            }
+        )
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="MARK_SERVED",
+            resource="queue",
+            resource_id=queue_id,
+            details=f"Doctor {doctor.full_name} marked patient {patient.phone_number} as served",
+            db=db
+        )
+        
+        return {"message": "Patient marked as served successfully"}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to mark patient as served"
+        )
+
+@router.get("/patients/{patient_id}", response_model=PatientSchema)
+async def get_patient_details(
+    patient_id: UUID,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get patient details for doctor view"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Verify patient has appointment with this doctor
+        result = await db.execute(
+            select(Patient, Appointment)
+            .join(Appointment, Patient.id == Appointment.patient_id)
+            .where(
+                and_(
+                    Patient.id == patient_id,
+                    Appointment.doctor_id == doctor.id
+                )
+            )
+        )
+        
+        patient_data = result.first()
+        if not patient_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Patient not found or not assigned to this doctor"
+            )
+        
+        patient, _ = patient_data
+        return PatientSchema.model_validate(patient)
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch patient details"
+        )
+
+@router.get("/appointments/history")
+async def get_appointment_history(
+    skip: int = 0,
+    limit: int = 50,
+    patient_id: Optional[UUID] = None,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get appointment history for current doctor"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        query = (
+            select(Appointment, Patient)
+            .join(Patient, Appointment.patient_id == Patient.id)
+            .where(Appointment.doctor_id == doctor.id)
+            .order_by(desc(Appointment.created_at))
+        )
+        
+        if patient_id:
+            query = query.where(Appointment.patient_id == patient_id)
+        
+        query = query.offset(skip).limit(limit)
+        result = await db.execute(query)
+        
+        appointments = []
+        for appointment, patient in result.all():
+            appointment_schema = AppointmentSchema.model_validate(appointment)
+            appointment_schema.patient = PatientSchema.model_validate(patient)
+            appointments.append(appointment_schema)
+        
+        return appointments
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch appointment history"
+        )
+
+@router.get("/dashboard/stats", response_model=DoctorDashboardStats)
+async def get_doctor_dashboard_stats(
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get dashboard statistics for doctor"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Patients served today
+        patients_served_today = await db.execute(
+            select(func.count(Appointment.id))
+            .where(
+                and_(
+                    Appointment.doctor_id == doctor.id,
+                    Appointment.status == "completed",
+                    func.date(Appointment.completed_at) == func.current_date()
+                )
+            )
+        )
+        
+        # Current queue length for this doctor
+        current_queue_length = await db.execute(
+            select(func.count(Queue.id))
+            .join(Appointment, Queue.appointment_id == Appointment.id)
+            .where(
+                and_(
+                    Appointment.doctor_id == doctor.id,
+                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED])
+                )
+            )
+        )
+        
+        # Urgent cases in queue
+        urgent_cases = await db.execute(
+            select(func.count(Queue.id))
+            .join(Appointment, Queue.appointment_id == Appointment.id)
+            .where(
+                and_(
+                    Appointment.doctor_id == doctor.id,
+                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED]),
+                    Appointment.urgency_level == UrgencyLevel.URGENT
+                )
+            )
+        )
+        
+        # Average consultation time today (in minutes)
+        avg_consultation_time = await db.execute(
+            select(func.avg(
+                func.extract('epoch', Queue.updated_at - Queue.created_at) / 60
+            ))
+            .join(Appointment, Queue.appointment_id == Appointment.id)
+            .where(
+                and_(
+                    Appointment.doctor_id == doctor.id,
+                    Queue.status == QueueStatus.SERVED,
+                    func.date(Queue.created_at) == func.current_date()
+                )
+            )
+        )
+        
+        return DoctorDashboardStats(
+            patients_served_today=patients_served_today.scalar() or 0,
+            current_queue_length=current_queue_length.scalar() or 0,
+            urgent_cases=urgent_cases.scalar() or 0,
+            average_consultation_time=int(avg_consultation_time.scalar() or 0)
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch doctor dashboard stats"
+        )

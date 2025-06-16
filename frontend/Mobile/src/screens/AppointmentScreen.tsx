@@ -14,18 +14,17 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format } from 'date-fns';
+import { format, isBefore, startOfDay } from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
 
 import { COLORS, FONTS, SIZES } from '../constants/theme';
 import { RootStackParamList } from '../navigation';
 import { useQueue } from '../context/QueueContext';
 import { useAuth } from '../context/AuthContext';
-import { ConditionType, Gender } from '../types';
+import { ConditionType } from '../types';
 
 import AppInput from '../components/AppInput';
 import AppButton from '../components/AppButton';
-import AppDropdown from '../components/AppDropdown';
 
 type AppointmentScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -36,39 +35,37 @@ const AppointmentScreen: React.FC = () => {
     const { state: authState } = useAuth();
 
     // Form state
-    const [gender, setGender] = useState<Gender>('male');
-    const [dateOfBirth, setDateOfBirth] = useState<Date>(new Date());
+    const [appointmentDate, setAppointmentDate] = useState<Date>(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
-    const [conditionType, setConditionType] = useState<ConditionType>('normal');
     const [reasonForVisit, setReasonForVisit] = useState('');
     const [conditionExplanation, setConditionExplanation] = useState('');
     const [errors, setErrors] = useState({
-        gender: '',
-        dateOfBirth: '',
-        conditionType: '',
+        appointmentDate: '',
         reasonForVisit: '',
     });
 
-    // Gender options
-    const genderOptions = [
-        { label: t('male'), value: 'male' },
-        { label: t('female'), value: 'female' },
-    ];
-
-    // Condition type options
-    const conditionOptions = [
-        { label: t('emergency'), value: 'emergency' },
-        { label: t('elderly'), value: 'elderly' },
-        { label: t('child'), value: 'child' },
-        { label: t('normal'), value: 'normal' },
+    // Common reasons for visit
+    const commonReasons = [
+        { id: 'checkup', label: t('generalCheckup') },
+        { id: 'followup', label: t('followUp') },
+        { id: 'consultation', label: t('consultation') },
+        { id: 'fever', label: t('fever') },
+        { id: 'cold', label: t('cold') },
+        { id: 'headache', label: t('headache') },
+        { id: 'prescription', label: t('prescription') },
     ];
 
     // Handle date change
     const handleDateChange = (event: any, selectedDate?: Date) => {
         setShowDatePicker(Platform.OS === 'ios');
         if (selectedDate) {
-            setDateOfBirth(selectedDate);
+            setAppointmentDate(selectedDate);
         }
+    };
+
+    // Handle quick reason selection
+    const handleReasonSelect = (reason: string) => {
+        setReasonForVisit(reason);
     };
 
     // Format date for display
@@ -80,16 +77,14 @@ const AppointmentScreen: React.FC = () => {
     const validateForm = () => {
         let valid = true;
         const newErrors = {
-            gender: '',
-            dateOfBirth: '',
-            conditionType: '',
+            appointmentDate: '',
             reasonForVisit: ''
         };
 
-        // Check if date of birth is valid
-        const today = new Date();
-        if (dateOfBirth > today) {
-            newErrors.dateOfBirth = 'Tarehe ya kuzaliwa haiwezi kuwa baadaye';
+        // Check if appointment date is valid (same day or future)
+        const today = startOfDay(new Date());
+        if (isBefore(appointmentDate, today)) {
+            newErrors.appointmentDate = t('appointmentDateMustBeFutureOrToday');
             valid = false;
         }
 
@@ -107,25 +102,25 @@ const AppointmentScreen: React.FC = () => {
     const handleSubmit = async () => {
         if (validateForm()) {
             try {
-                const appointmentData = {
-                    patientName: authState.user?.fullName || '',
-                    phoneNumber: authState.user?.phoneNumber || '',
-                    gender,
-                    dateOfBirth: formatDateString(dateOfBirth),
-                    conditionType,
-                    reasonForVisit,
-                    conditionExplanation,
-                };
+                // Use normal priority for all patient-created appointments
+                const conditionType: ConditionType = 'normal';
+                
+                // Only add to queue if appointment is for today
+                const isToday = format(appointmentDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
 
                 await createAppointment(
-                    gender,
-                    formatDateString(dateOfBirth),
-                    conditionType
+                    authState.user?.gender || 'other',
+                    formatDateString(appointmentDate),
+                    conditionType,
+                    isToday
                 );
+                
                 Alert.alert(
                     t('success'),
-                    t('appointmentSuccess'),
-                    [{ text: 'OK', onPress: () => navigation.goBack() }]
+                    isToday 
+                        ? t('appointmentSuccessToday') 
+                        : t('appointmentSuccessFuture'),
+                    [{ text: 'OK', onPress: () => navigation.navigate('Appointments') }]
                 );
             } catch (error) {
                 Alert.alert(
@@ -214,51 +209,59 @@ const AppointmentScreen: React.FC = () => {
                                 <Text style={styles.sectionTitle}>{t('appointmentDetails')}</Text>
                             </View>
 
-                            {/* Gender Dropdown */}
-                            <AppDropdown
-                                label={t('gender')}
-                                options={genderOptions}
-                                selectedValue={gender}
-                                onValueChange={(value) => setGender(value as Gender)}
-                                error={errors.gender}
-                            />
-
-                            {/* Date of Birth Picker */}
+                            {/* Appointment Date Picker */}
                             <View style={styles.datePickerContainer}>
-                                <Text style={styles.label}>{t('dateOfBirth')}</Text>
+                                <Text style={styles.label}>{t('appointmentDate')}</Text>
                                 <TouchableOpacity
-                                    style={[styles.datePickerButton, errors.dateOfBirth ? styles.inputError : null]}
+                                    style={[styles.datePickerButton, errors.appointmentDate ? styles.inputError : null]}
                                     onPress={() => setShowDatePicker(true)}
                                 >
                                     <Text style={styles.datePickerText}>
-                                        {formatDateString(dateOfBirth)}
+                                        {formatDateString(appointmentDate)}
                                     </Text>
                                     <Ionicons name="calendar-outline" size={20} color={COLORS.gray} />
                                 </TouchableOpacity>
-                                {errors.dateOfBirth ? (
-                                    <Text style={styles.fieldErrorText}>{errors.dateOfBirth}</Text>
+                                {errors.appointmentDate ? (
+                                    <Text style={styles.fieldErrorText}>{errors.appointmentDate}</Text>
                                 ) : null}
                             </View>
 
                             {showDatePicker && (
                                 <DateTimePicker
-                                    value={dateOfBirth}
+                                    value={appointmentDate}
                                     mode="date"
                                     display="default"
                                     onChange={handleDateChange}
                                     minimumDate={new Date()}
-                                    maximumDate={new Date(Date.now() + 1000 * 60 * 60 * 24 * 365)}
+                                    maximumDate={new Date(Date.now() + 1000 * 60 * 60 * 24 * 60)} // 60 days ahead
                                 />
                             )}
 
-                            {/* Condition Type Dropdown */}
-                            <AppDropdown
-                                label={t('conditionType')}
-                                options={conditionOptions}
-                                selectedValue={conditionType}
-                                onValueChange={(value) => setConditionType(value as ConditionType)}
-                                error={errors.conditionType}
-                            />
+                            {/* Common Reasons Selection */}
+                            <View style={styles.reasonsContainer}>
+                                <Text style={styles.label}>{t('commonReasons')}</Text>
+                                <View style={styles.reasonsGrid}>
+                                    {commonReasons.map((reason) => (
+                                        <TouchableOpacity
+                                            key={reason.id}
+                                            style={[
+                                                styles.reasonButton,
+                                                reasonForVisit === reason.label && styles.selectedReasonButton
+                                            ]}
+                                            onPress={() => handleReasonSelect(reason.label)}
+                                        >
+                                            <Text 
+                                                style={[
+                                                    styles.reasonButtonText,
+                                                    reasonForVisit === reason.label && styles.selectedReasonButtonText
+                                                ]}
+                                            >
+                                                {reason.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
 
                             {/* Reason for Visit */}
                             <AppInput
@@ -273,12 +276,12 @@ const AppointmentScreen: React.FC = () => {
                                 inputStyle={styles.multilineInput}
                             />
 
-                            {/* Condition Explanation */}
+                            {/* Additional Information */}
                             <AppInput
                                 label={t('additionalInformation')}
                                 value={conditionExplanation}
                                 onChangeText={(text) => setConditionExplanation(text)}
-                                placeholder={t('conditionExplanationPlaceholder')}
+                                placeholder={t('additionalInformationPlaceholder')}
                                 containerStyle={styles.inputContainer}
                                 multiline={true}
                                 numberOfLines={4}
@@ -286,11 +289,11 @@ const AppointmentScreen: React.FC = () => {
                             />
                         </View>
 
-                        {/* Priority Information */}
+                        {/* Info about appointment scheduling */}
                         <View style={styles.priorityInfo}>
-                            <Text style={styles.priorityTitle}>{t('priorityInformation')}</Text>
+                            <Text style={styles.priorityTitle}>{t('appointmentInfo')}</Text>
                             <Text style={styles.priorityText}>
-                                {t('priorityExplanation')}
+                                {t('futureAppointmentExplanation')}
                             </Text>
                         </View>
 
@@ -428,15 +431,44 @@ const styles = StyleSheet.create({
         ...FONTS.body5,
         marginTop: 4,
     },
+    reasonsContainer: {
+        marginBottom: SIZES.base,
+    },
+    reasonsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginHorizontal: -SIZES.base / 2,
+    },
+    reasonButton: {
+        backgroundColor: COLORS.lightGray + '50',
+        borderRadius: SIZES.radius,
+        paddingVertical: SIZES.base,
+        paddingHorizontal: SIZES.padding,
+        margin: SIZES.base / 2,
+        borderWidth: 1,
+        borderColor: 'transparent',
+    },
+    selectedReasonButton: {
+        backgroundColor: COLORS.primary + '20',
+        borderColor: COLORS.primary,
+    },
+    reasonButtonText: {
+        ...FONTS.body4,
+        color: COLORS.gray,
+    },
+    selectedReasonButtonText: {
+        color: COLORS.primary,
+        fontWeight: '500',
+    },
     priorityInfo: {
-        backgroundColor: COLORS.warning + '15',
+        backgroundColor: COLORS.info + '15',
         borderRadius: SIZES.radius,
         padding: SIZES.padding,
         marginBottom: SIZES.padding * 1.5,
     },
     priorityTitle: {
         ...FONTS.h4,
-        color: COLORS.warning,
+        color: COLORS.info,
         marginBottom: SIZES.base,
     },
     priorityText: {

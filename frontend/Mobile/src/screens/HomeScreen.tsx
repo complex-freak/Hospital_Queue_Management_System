@@ -36,6 +36,14 @@ const HomeScreen: React.FC = () => {
             onPress: () => navigation.navigate('Appointment'),
         },
         {
+            id: 'appointments',
+            title: t('appointments'),
+            icon: 'list-outline',
+            color: COLORS.success,
+            description: t('viewAppointments'),
+            onPress: () => navigation.navigate('Appointments'),
+        },
+        {
             id: 'queue',
             title: t('queueStatus'),
             icon: 'time-outline',

@@ -1,0 +1,440 @@
+from typing import Optional
+from datetime import timedelta
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from pydantic import BaseModel
+
+from database import get_db
+from models import Patient, Appointment
+from schemas import (
+    PatientCreate, PatientUpdate, PatientLogin, Patient as PatientSchema,
+    Token, QueueStatusResponse, Appointment as AppointmentSchema
+)
+from services import AuthService, QueueService
+from api.core.security import create_access_token, get_password_hash, verify_password
+from api.core.config import settings
+from api.dependencies import get_current_patient, log_audit_event
+
+router = APIRouter()
+
+
+# Password change schema
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/register", response_model=PatientSchema)
+async def register_patient(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    patient_data: PatientCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Register a new patient with minimal required information"""
+    try:
+        # For mobile app registration, we only require first name, last name, phone number, password
+        # Other fields will be collected during onboarding
+        patient = await AuthService.register_patient(db, patient_data)
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=patient.id,
+            user_type="patient",
+            action="REGISTER",
+            resource="patient",
+            resource_id=patient.id,
+            details=f"Patient registered with phone {patient.phone_number}",
+            db=db
+        )
+        
+        return patient
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Registration failed"
+        )
+
+
+@router.post("/complete-profile", response_model=PatientSchema)
+async def complete_patient_profile(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    profile_data: PatientUpdate,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Complete patient profile with additional information during onboarding"""
+    try:
+        # Update patient fields
+        update_data = profile_data.model_dump(exclude_unset=True)
+        
+        # Log received data for debugging
+        print(f"Received update data: {update_data}")
+        
+        # Ensure all required fields are provided
+        required_fields = ['email', 'gender', 'address', 'emergency_contact']  # Remove date_of_birth from required
+        missing_fields = []
+        
+        for field in required_fields:
+            if field not in update_data or update_data[field] is None:
+                if getattr(current_patient, field, None) is None:
+                    missing_fields.append(field)
+        
+        if missing_fields:
+            raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+        
+        # Update patient with provided data
+        for field, value in update_data.items():
+            # Handle timezone conversion for date_of_birth
+            if field == 'date_of_birth' and value is not None:
+                # Convert timezone-aware datetime to naive datetime
+                if hasattr(value, 'tzinfo') and value.tzinfo is not None:
+                    value = value.replace(tzinfo=None)
+            
+            setattr(current_patient, field, value)
+        
+        await db.commit()
+        await db.refresh(current_patient)
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_patient.id,
+            user_type="patient",
+            action="COMPLETE_PROFILE",
+            resource="patient",
+            resource_id=current_patient.id,
+            details=f"Patient completed profile with fields: {list(update_data.keys())}",
+            db=db
+        )
+        
+        return current_patient
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        await db.rollback()
+        print(f"Profile completion error: {str(e)}")  # Log the actual error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Profile completion failed: {str(e)}"
+        )
+
+
+@router.post("/login", response_model=Token)
+async def login_patient(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    login_data: PatientLogin,
+    db: AsyncSession = Depends(get_db)
+):
+    """Patient login"""
+    patient = await AuthService.authenticate_patient(
+        db, login_data.phone_number, login_data.password
+    )
+    
+    if not patient:
+        # Log failed login attempt
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=None,
+            user_type="patient",
+            action="LOGIN_FAILED",
+            resource="patient",
+            details=f"Failed login attempt for phone {login_data.phone_number}",
+            db=db
+        )
+        
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect phone number or password"
+        )
+    
+    if not patient.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is deactivated"
+        )
+    
+    # Create access token
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        subject=str(patient.id), expires_delta=access_token_expires
+    )
+    
+    # Log successful login
+    background_tasks.add_task(
+        log_audit_event,
+        request=request,
+        user_id=patient.id,
+        user_type="patient",
+        action="LOGIN",
+        resource="patient",
+        resource_id=patient.id,
+        details="Successful login",
+        db=db
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get("/profile", response_model=PatientSchema)
+async def get_patient_profile(
+    current_patient: Patient = Depends(get_current_patient)
+):
+    """Get current patient profile"""
+    return current_patient
+
+
+@router.put("/profile", response_model=PatientSchema)
+async def update_patient_profile(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    patient_update: PatientUpdate,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update patient profile"""
+    try:
+        # Update patient fields
+        update_data = patient_update.model_dump(exclude_unset=True)
+        
+        # Log received data for debugging
+        print(f"Profile update data: {update_data}")
+        
+        for field, value in update_data.items():
+            # Handle timezone conversion for date_of_birth
+            if field == 'date_of_birth' and value is not None:
+                # Convert timezone-aware datetime to naive datetime
+                if hasattr(value, 'tzinfo') and value.tzinfo is not None:
+                    value = value.replace(tzinfo=None)
+            
+            setattr(current_patient, field, value)
+        
+        await db.commit()
+        await db.refresh(current_patient)
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_patient.id,
+            user_type="patient",
+            action="UPDATE_PROFILE",
+            resource="patient",
+            resource_id=current_patient.id,
+            details=f"Updated fields: {list(update_data.keys())}",
+            db=db
+        )
+        
+        return current_patient
+        
+    except Exception as e:
+        await db.rollback()
+        print(f"Profile update error: {str(e)}")  # Log the actual error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Profile update failed: {str(e)}"
+        )
+
+
+@router.get("/queue-status", response_model=Optional[QueueStatusResponse])
+async def get_queue_status(
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get current queue status for patient"""
+    try:
+        queue_status = await QueueService.get_queue_status(db, current_patient.id)
+        return queue_status
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get queue status"
+        )
+
+
+@router.get("/appointments", response_model=list[AppointmentSchema])
+async def get_patient_appointments(
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 10,
+    offset: int = 0
+):
+    """Get patient's appointments"""
+    try:
+        result = await db.execute(
+            select(Appointment)
+            .where(Appointment.patient_id == current_patient.id)
+            .order_by(Appointment.appointment_date.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        appointments = result.scalars().all()
+        return appointments
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get appointments"
+        )
+
+
+@router.get("/appointments/{appointment_id}", response_model=AppointmentSchema)
+async def get_appointment_details(
+    appointment_id: str,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get specific appointment details"""
+    try:
+        result = await db.execute(
+            select(Appointment)
+            .where(
+                Appointment.id == appointment_id,
+                Appointment.patient_id == current_patient.id
+            )
+        )
+        appointment = result.scalar_one_or_none()
+        
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found"
+            )
+        
+        return appointment
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get appointment details"
+        )
+
+
+@router.delete("/delete-account", response_model=dict)
+async def delete_patient_account(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete patient account (soft delete)"""
+    try:
+        # Perform soft delete by setting is_active to False
+        current_patient.is_active = False
+        
+        await db.commit()
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_patient.id,
+            user_type="patient",
+            action="DELETE_ACCOUNT",
+            resource="patient",
+            resource_id=current_patient.id,
+            details="Patient account deactivated",
+            db=db
+        )
+        
+        return {"message": "Account deactivated successfully"}
+        
+    except Exception as e:
+        await db.rollback()
+        print(f"Account deletion error: {str(e)}")  # Log the actual error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Account deletion failed: {str(e)}"
+        )
+
+
+@router.post("/change-password", response_model=dict)
+async def change_password(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    password_data: PasswordChangeRequest,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Change patient password"""
+    try:
+        # Verify current password
+        if not verify_password(password_data.current_password, current_patient.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect"
+            )
+        
+        # Validate new password (should match the same validation as in PatientCreate)
+        if len(password_data.new_password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 8 characters"
+            )
+            
+        if not any(c.isupper() for c in password_data.new_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must contain at least one uppercase letter"
+            )
+            
+        if not any(c.islower() for c in password_data.new_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must contain at least one lowercase letter"
+            )
+            
+        if not any(c.isdigit() for c in password_data.new_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must contain at least one digit"
+            )
+        
+        # Update password
+        current_patient.password_hash = get_password_hash(password_data.new_password)
+        await db.commit()
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_patient.id,
+            user_type="patient",
+            action="CHANGE_PASSWORD",
+            resource="patient",
+            resource_id=current_patient.id,
+            details="Password changed successfully",
+            db=db
+        )
+        
+        return {"message": "Password changed successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        print(f"Password change error: {str(e)}")  # Log the actual error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Password change failed: {str(e)}"
+        )
