@@ -172,11 +172,19 @@ This document outlines the detailed implementation plan for the Hospital Queuing
 ## 12. Deployment & Environment Management
 
 - **Tasks**:
+
   - Define staging and production environments with separate DB instances.
   - Manage secrets via Render secrets or Docker secrets.
   - Automate database migrations in CI/CD workflow.
   - Document environment variables and setup steps in `README.md`.
 
+  1. Complete doctor dashboard API implementation
+  2. Implement remaining notification endpoints
+  3. Finalize Docker containerization
+  4. Implement frontend components for all dashboards
+  5. Complete testing and deployment
+  6. Implement offline sync capabilities
+
 ---
 
-*End of Implementation Plan* 
+*End of Implementation Plan*

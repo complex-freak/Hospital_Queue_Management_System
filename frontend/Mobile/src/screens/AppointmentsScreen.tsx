@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SIZES } from '../constants/theme';
 import { RootStackParamList } from '../navigation';
 import { useQueue } from '../context/QueueContext';
+import { useAuth } from '../context/AuthContext';
 import { Appointment } from '../types';
 import { useAuthenticatedAPI } from '../hooks/useAuthenticatedAPI';
 
@@ -30,7 +31,8 @@ const AppointmentsScreen: React.FC = () => {
     const { t } = useTranslation();
     const navigation = useNavigation<AppointmentsScreenNavigationProp>();
     const { getAppointments, cancelAppointment } = useQueue();
-    const { isAuthenticated, makeAuthenticatedRequest } = useAuthenticatedAPI();
+    const { isAuthenticated, makeAuthenticatedRequest, verifyToken } = useAuthenticatedAPI();
+    const { state: authState } = useAuth(); // Get auth state directly from AuthContext
 
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [loading, setLoading] = useState(true);
@@ -40,7 +42,11 @@ const AppointmentsScreen: React.FC = () => {
     // Fetch appointments when screen is focused
     useFocusEffect(
         useCallback(() => {
-            fetchAppointments();
+            // Verify token first, then fetch appointments
+            verifyToken().then(isValid => {
+                console.log('Token verification result:', isValid);
+                fetchAppointments();
+            });
         }, [])
     );
 
@@ -49,15 +55,37 @@ const AppointmentsScreen: React.FC = () => {
         try {
             setLoading(true);
             
-            if (!isAuthenticated) {
-                console.log('Not authenticated, cannot fetch appointments');
+            // First check if we have a user in the auth state
+            if (!authState?.user) {
+                console.log('No user in auth state, cannot fetch appointments');
                 setLoading(false);
                 return;
             }
             
+            // Check authentication properly by calling verifyToken explicitly
+            // instead of just accessing the isAuthenticated state value
+            const isTokenValid = await verifyToken();
+            
+            if (!isTokenValid) {
+                console.log('Not authenticated, cannot fetch appointments');
+                // Don't show alert immediately - let's try to recover the session first
+                setLoading(false);
+                return;
+            }
+            
+            // Now use makeAuthenticatedRequest which will handle token validation again
             await makeAuthenticatedRequest(async () => {
-                const fetchedAppointments = await getAppointments();
-                setAppointments(fetchedAppointments);
+                try {
+                    const fetchedAppointments = await getAppointments();
+                    setAppointments(fetchedAppointments);
+                } catch (error) {
+                    console.error('Error in getAppointments:', error);
+                    Alert.alert(
+                        t('error'),
+                        t('failedToLoadAppointments'),
+                        [{ text: t('ok') }]
+                    );
+                }
             }, () => {
                 // Handle authentication error
                 Alert.alert(
@@ -68,6 +96,11 @@ const AppointmentsScreen: React.FC = () => {
             });
         } catch (error) {
             console.error('Error fetching appointments:', error);
+            Alert.alert(
+                t('error'),
+                t('failedToLoadAppointments'),
+                [{ text: t('ok') }]
+            );
         } finally {
             setLoading(false);
             setRefreshing(false);

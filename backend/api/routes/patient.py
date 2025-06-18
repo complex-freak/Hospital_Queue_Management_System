@@ -13,7 +13,7 @@ from schemas import (
     PatientCreate, PatientUpdate, PatientLogin, Patient as PatientSchema,
     Token, QueueStatusResponse, Appointment as AppointmentSchema,
     Notification as NotificationSchema, DeviceToken as DeviceTokenSchema,
-    SettingsSchema, SettingsUpdateSchema
+    SettingsSchema, SettingsUpdateSchema, PatientAppointmentCreate
 )
 from services import AuthService, QueueService
 from api.core.security import create_access_token, get_password_hash, verify_password
@@ -283,6 +283,9 @@ async def get_patient_appointments(
 ):
     """Get patient's appointments"""
     try:
+        # Log the request for debugging
+        logging.info(f"Fetching appointments for patient: {current_patient.id}, limit: {limit}, offset: {offset}")
+        
         result = await db.execute(
             select(Appointment)
             .where(Appointment.patient_id == current_patient.id)
@@ -291,9 +294,19 @@ async def get_patient_appointments(
             .limit(limit)
         )
         appointments = result.scalars().all()
+        
+        # Ensure all appointments have created_at value
+        for appointment in appointments:
+            if appointment.created_at is None:
+                appointment.created_at = appointment.appointment_date or datetime.now()
+                
+        # Log the number of appointments found
+        logging.info(f"Found {len(appointments)} appointments for patient {current_patient.id}")
+        
         return appointments
         
     except Exception as e:
+        logging.error(f"Failed to get appointments: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get appointments"
@@ -323,11 +336,16 @@ async def get_appointment_details(
                 detail="Appointment not found"
             )
         
+        # Ensure appointment has created_at value
+        if appointment.created_at is None:
+            appointment.created_at = appointment.appointment_date or datetime.now()
+            
         return appointment
         
     except HTTPException:
         raise
     except Exception as e:
+        logging.error(f"Failed to get appointment details: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get appointment details"
@@ -616,3 +634,57 @@ async def update_patient_settings(
     await db.commit()
     await db.refresh(settings)
     return settings
+
+
+@router.post("/appointments", response_model=AppointmentSchema)
+async def create_appointment(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    appointment_data: PatientAppointmentCreate,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new appointment request"""
+    try:
+        # Create new appointment with default status of 'WAITING'
+        appointment_date = appointment_data.appointment_date or datetime.now()
+        
+        # Debug log the incoming data
+        print(f"Creating appointment with data: {appointment_data}")
+        
+        # Create the appointment - use enum value WAITING
+        new_appointment = Appointment(
+            patient_id=current_patient.id,
+            appointment_date=appointment_date,
+            notes=appointment_data.notes,
+            urgency=appointment_data.urgency,
+            status="WAITING", # Use the correct enum value
+            created_at=datetime.now()  # Add current datetime for created_at field
+        )
+        
+        db.add(new_appointment)
+        await db.commit()
+        await db.refresh(new_appointment)
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_patient.id,
+            user_type="patient",
+            action="CREATE_APPOINTMENT",
+            resource="appointment",
+            resource_id=new_appointment.id,
+            details=f"Appointment created with urgency: {appointment_data.urgency}",
+            db=db
+        )
+        
+        return new_appointment
+        
+    except Exception as e:
+        await db.rollback()
+        logging.error(f"Appointment creation failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create appointment: {str(e)}"
+        )

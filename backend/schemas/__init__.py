@@ -178,6 +178,28 @@ class AppointmentCreate(AppointmentBase):
     doctor_id: Optional[UUID] = None
 
 
+# Schema for patient appointment creation from mobile app
+class PatientAppointmentCreate(BaseModel):
+    appointment_date: Optional[datetime] = None
+    notes: Optional[str] = None
+    urgency: str = "normal"  # default to normal
+    
+    model_config = {
+        "extra": "ignore",  # Ignore extra fields
+        "from_attributes": True,
+        "validate_assignment": False,
+        "arbitrary_types_allowed": True,
+    }
+    
+    # Validate and convert string to datetime if needed
+    @field_validator('appointment_date', mode='before')
+    @classmethod
+    def validate_appointment_date(cls, v):
+        if v == "undefined" or v is None or v == "":
+            return None
+        return v
+
+
 class AppointmentUpdate(BaseModel):
     appointment_date: Optional[datetime] = None
     doctor_id: Optional[UUID] = None
@@ -194,7 +216,7 @@ class Appointment(AppointmentBase, BaseSchema):
     created_by: Optional[UUID] = None
     status: AppointmentStatus
     notes: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None  # Make created_at optional to fix validation error
     updated_at: Optional[datetime] = None
     patient: Patient
     doctor: Optional[Doctor] = None
@@ -223,7 +245,7 @@ class Queue(QueueBase, BaseSchema):
     status: QueueStatus
     called_at: Optional[datetime] = None
     served_at: Optional[datetime] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None  # Make created_at optional to fix validation error
     updated_at: Optional[datetime] = None
     appointment: Appointment
 
@@ -246,7 +268,7 @@ class Notification(NotificationBase, BaseSchema):
     sent_at: Optional[datetime] = None
     status: str
     error_message: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None  # Make created_at optional
 
 
 # Audit Log schema
@@ -260,7 +282,7 @@ class AuditLog(BaseSchema):
     details: Optional[str] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
 
 class AuditLogCreate(BaseModel):
@@ -293,7 +315,7 @@ class QueueResponse(BaseModel):
     appointment_id: UUID
     patient_id: UUID
     doctor_id: Optional[UUID] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None  # Make created_at optional
 
 
 class DashboardStats(BaseModel):

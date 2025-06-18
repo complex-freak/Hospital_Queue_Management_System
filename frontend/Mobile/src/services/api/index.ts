@@ -11,12 +11,14 @@ export interface ApiResponse<T = any> {
   status: number;
   isSuccess: boolean;
   message?: string;
+  errors?: Record<string, string[]>;
 }
 
 export interface ApiError {
   status: number;
   message: string;
   errors?: Record<string, string[]>;
+  data?: any;
 }
 
 // Extended request config type to add _retry property
@@ -42,6 +44,9 @@ class HttpClient {
     });
 
     this.setupInterceptors();
+    
+    // Load token on initialization
+    this.loadTokenFromStorage();
   }
 
   private setupInterceptors(): void {
@@ -135,30 +140,66 @@ class HttpClient {
 
   private formatError(error: AxiosError): ApiError {
     const status = error.response?.status || 500;
-    let message = 'An unknown error occurred';
+    let message = error?.message || 'Unknown error occurred';
     
-    // Handle error message extraction safely
-    if (error.response?.data && typeof error.response.data === 'object') {
+    // Get a more specific error message if available
+    if (error.response?.data) {
       const data = error.response.data as any;
-      message = data.message || error.message || message;
-    } else if (error.message) {
-      message = error.message;
+      if (typeof data === 'string') {
+        message = data;
+      } else if (data.message) {
+        message = data.message;
+      } else if (data.detail) {
+        message = typeof data.detail === 'string' 
+          ? data.detail 
+          : 'Validation error occurred';
+      } else if (status === 401) {
+        message = 'Authentication failed';
+      } else if (status === 403) {
+        message = 'You do not have permission to access this resource';
+      } else if (status === 404) {
+        message = 'The requested resource was not found';
+      } else if (status === 500) {
+        message = 'Server error occurred';
+      }
     }
     
-    // Extract validation errors if available
+    // Log the full error for debugging
+    console.log(`API Error (${status}): ${message}`, {
+      url: error.config?.url,
+      method: error.config?.method,
+      data: error.response?.data
+    });
+
     let errors: Record<string, string[]> | undefined = undefined;
     if (
       error.response?.data && 
-      typeof error.response.data === 'object' && 
-      'errors' in error.response.data
+      typeof error.response.data === 'object'
     ) {
-      errors = (error.response.data as any).errors;
+      const data = error.response.data as any;
+      if (data.errors) {
+        errors = data.errors;
+      } else if (data.detail && Array.isArray(data.detail)) {
+        // Handle FastAPI validation errors
+        errors = {};
+        data.detail.forEach((item: any) => {
+          const field = item.loc.slice(1).join('.');
+          if (!errors![field]) {
+            errors![field] = [];
+          }
+          errors![field].push(item.msg);
+        });
+      }
     }
+
+    // Add full response data for debugging
+    const responseData = error.response?.data || {};
 
     return {
       status,
       message,
       errors,
+      data: responseData
     };
   }
 
@@ -168,10 +209,20 @@ class HttpClient {
     config?: AxiosRequestConfig
   ): Promise<ApiResponse<T>> {
     try {
+      console.log(`Making GET request to: ${url}`);
       const response = await this.instance.get<T>(url, config);
       return this.formatResponse<T>(response);
     } catch (error) {
-      throw this.formatError(error as AxiosError);
+      console.error(`GET request failed for URL: ${url}`, error);
+      const formattedError = this.formatError(error as AxiosError);
+      console.log(`Formatted error: ${JSON.stringify(formattedError)}`);
+      return {
+        data: null as unknown as T,
+        status: formattedError.status,
+        isSuccess: false,
+        message: formattedError.message,
+        errors: formattedError.errors
+      };
     }
   }
 
@@ -338,7 +389,15 @@ class HttpClient {
   
   // Token management
   public async setToken(token: string): Promise<void> {
-    await AsyncStorage.setItem(AUTH_CONFIG.ACCESS_TOKEN_KEY, token);
+    try {
+      console.log('Setting token in HTTP client');
+      // Set in default headers
+      this.instance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      // Also save to AsyncStorage
+      await AsyncStorage.setItem(AUTH_CONFIG.ACCESS_TOKEN_KEY, token);
+    } catch (error) {
+      console.error('Error setting token:', error);
+    }
   }
 
   public async getToken(): Promise<string | null> {
@@ -347,6 +406,20 @@ class HttpClient {
 
   public async removeToken(): Promise<void> {
     await AsyncStorage.removeItem(AUTH_CONFIG.ACCESS_TOKEN_KEY);
+  }
+
+  // Load token from storage on initialization
+  private async loadTokenFromStorage(): Promise<void> {
+    try {
+      const token = await AsyncStorage.getItem(AUTH_CONFIG.ACCESS_TOKEN_KEY);
+      if (token) {
+        console.log('Token found in storage, setting in HTTP client');
+        // Set default authorization header
+        this.instance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      }
+    } catch (error) {
+      console.error('Error loading token from storage:', error);
+    }
   }
 }
 

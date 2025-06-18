@@ -4,6 +4,7 @@ import { Appointment, ConditionType, Gender, QueueState } from '../types';
 import { useAuth } from './AuthContext';
 import { format, addDays } from 'date-fns';
 import { appointmentService } from '../services';
+import { AUTH_CONFIG } from '../config/env';
 
 // Initial state
 const initialState: QueueState = {
@@ -77,7 +78,7 @@ interface QueueContextType {
         appointmentDate: string,
         conditionType: ConditionType,
         addToQueue?: boolean
-    ) => Promise<void>;
+    ) => Promise<boolean>;
     refreshQueueStatus: () => Promise<void>;
     clearAppointment: () => Promise<void>;
     clearError: () => void;
@@ -119,20 +120,24 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         conditionType: ConditionType,
         addToQueue: boolean = true,
         onAuthError?: () => void
-    ) => {
+    ): Promise<boolean> => {
         try {
             if (!authState.user) {
-                throw new Error('User must be logged in to create an appointment');
+                dispatch({ 
+                    type: 'APPOINTMENT_FAILURE', 
+                    payload: 'User must be logged in to create an appointment'
+                });
+                return false;
             }
 
             dispatch({ type: 'APPOINTMENT_REQUEST' });
 
             // Map condition type to urgency for API
             const urgencyMap: Record<ConditionType, string> = {
-                'emergency': 'emergency',
-                'elderly': 'high',
-                'child': 'low',
-                'normal': 'normal'
+                'emergency': 'EMERGENCY',
+                'elderly': 'HIGH',
+                'child': 'LOW',
+                'normal': 'NORMAL'
             };
 
             try {
@@ -147,14 +152,22 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     // Check if this is an auth error
                     if (response.status === 401) {
                         console.error('Authentication error during appointment creation');
+                        dispatch({
+                            type: 'APPOINTMENT_FAILURE',
+                            payload: 'Authentication failed'
+                        });
                         if (onAuthError) {
                             onAuthError();
-                            return;
+                            return false;
                         }
-                        throw new Error('Authentication failed');
+                        return false;
                     }
                     
-                    throw new Error(response.message || 'Failed to create appointment');
+                    dispatch({
+                        type: 'APPOINTMENT_FAILURE',
+                        payload: response.message || 'Failed to create appointment'
+                    });
+                    return false;
                 }
 
                 // Transform the API response to frontend format
@@ -169,26 +182,62 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     dispatch({ type: 'APPOINTMENT_REQUEST' });
                     dispatch({ type: 'APPOINTMENT_FAILURE', payload: '' });
                 }
-            } catch (error) {
-                if (error instanceof Error && 
-                    (error.message.includes('session has expired') || 
-                     error.message.includes('validate credentials') ||
-                     error.message.includes('Authentication failed'))) {
+                return true;
+            } catch (error: any) {
+                console.log('Error creating appointment:', error);
+                
+                if (error && error.status === 422) {
+                    // Handle validation errors
+                    let errorMessage = 'Validation error:';
+                    if (error.errors) {
+                        Object.entries(error.errors).forEach(([field, msgs]) => {
+                            errorMessage += ` ${field}: ${Array.isArray(msgs) ? msgs.join(', ') : msgs}`;
+                        });
+                    } else if (error.data && error.data.detail) {
+                        // Extract validation error details
+                        if (Array.isArray(error.data.detail)) {
+                            error.data.detail.forEach((item: any) => {
+                                errorMessage += ` ${item.loc.join('.')}: ${item.msg}`;
+                            });
+                        } else {
+                            errorMessage += ` ${error.data.detail}`;
+                        }
+                    }
+                    dispatch({
+                        type: 'APPOINTMENT_FAILURE',
+                        payload: errorMessage,
+                    });
+                    return false;
+                }
+                
+                if (error && 
+                    (error.message?.includes('session has expired') || 
+                     error.message?.includes('validate credentials') ||
+                     error.message?.includes('Authentication failed'))) {
                     
                     console.error('Authentication error during appointment creation:', error);
+                    dispatch({
+                        type: 'APPOINTMENT_FAILURE',
+                        payload: 'Authentication failed'
+                    });
                     if (onAuthError) {
                         onAuthError();
-                        return;
+                        return false;
                     }
                 }
                 
-                throw error;
+                dispatch({
+                    type: 'APPOINTMENT_FAILURE',
+                    payload: error?.message || 'Failed to create appointment',
+                });
+                return false;
             }
         } catch (error) {
             dispatch({
                 type: 'APPOINTMENT_FAILURE',
                 payload: error instanceof Error ? error.message : 'Failed to create appointment',
             });
+            return false;
         }
     };
 
@@ -245,10 +294,19 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const getAppointments = async (): Promise<Appointment[]> => {
         try {
             if (!authState.user) {
+                console.log('User must be logged in to get appointments');
                 throw new Error('User must be logged in to get appointments');
             }
             
+            // Verify we have a token before making the request
+            const token = await AsyncStorage.getItem(AUTH_CONFIG.ACCESS_TOKEN_KEY);
+            if (!token) {
+                console.log('No auth token available for appointments request');
+                throw new Error('Authentication token not found');
+            }
+            
             // Call the appointment service API to get real appointments
+            console.log('Fetching appointments for user:', authState.user.id);
             const response = await appointmentService.getAppointments();
             
             if (response.isSuccess && response.data) {
@@ -258,15 +316,27 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 );
                 
                 // Sort by creation date (newest first)
-                appointments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                appointments.sort((a, b) => {
+                    // Handle potentially missing or malformed dates
+                    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                    return dateB - dateA;
+                });
                 
                 return appointments;
+            }
+            
+            // If response was not successful
+            if (!response.isSuccess) {
+                console.error('Failed to get appointments:', response.message);
+                throw new Error(response.message || 'Failed to get appointments');
             }
             
             return [];
         } catch (error) {
             console.error('Error getting appointments:', error);
-            return [];
+            // Don't swallow the error - propagate it up
+            throw error;
         }
     };
 

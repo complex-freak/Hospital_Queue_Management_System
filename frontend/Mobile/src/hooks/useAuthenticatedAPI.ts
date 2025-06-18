@@ -19,19 +19,32 @@ export const useAuthenticatedAPI = () => {
     const verifyToken = useCallback(async () => {
         try {
             setIsChecking(true);
+            
+            // First check if we have a token in storage
             const token = await AsyncStorage.getItem(AUTH_CONFIG.ACCESS_TOKEN_KEY);
             
             if (!token) {
+                console.log('No token found in storage');
                 setIsTokenValid(false);
                 return false;
             }
             
             // Token exists, now check if user object exists in auth state
             if (!authState.user) {
+                console.log('Token exists but no user in auth state');
+                
+                // Try to recover by setting the token in the HTTP client
+                // This ensures future requests use this token
+                await httpClient.setToken(token);
+                
                 setIsTokenValid(false);
                 return false;
             }
             
+            // Set the token in the HTTP client to ensure it's used for requests
+            await httpClient.setToken(token);
+            
+            console.log('Token verified successfully');
             setIsTokenValid(true);
             return true;
         } catch (error) {
@@ -74,7 +87,7 @@ export const useAuthenticatedAPI = () => {
             const isValid = await verifyToken();
             
             if (!isValid) {
-                console.error('Cannot make API call: Not authenticated');
+                console.log('Cannot make API call: Not authenticated');
                 onAuthError?.();
                 return null;
             }
@@ -82,6 +95,8 @@ export const useAuthenticatedAPI = () => {
             // Make the API call
             return await apiCallFn();
         } catch (error) {
+            console.log('Error in makeAuthenticatedRequest:', error);
+            
             // Check if this is an auth error
             if (
                 error instanceof Error && 
@@ -102,7 +117,8 @@ export const useAuthenticatedAPI = () => {
         isAuthenticated: isTokenValid,
         isLoading: isChecking,
         makeAuthenticatedRequest,
-        verifyToken
+        verifyToken,
+        authState
     };
 };
 

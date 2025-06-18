@@ -51,7 +51,15 @@ class AppointmentService {
    * Create a new appointment with offline support
    */
   public async createAppointment(data: CreateAppointmentRequest): Promise<ApiResponse<AppointmentResponse>> {
-    return httpClient.postWithOfflineSupport<AppointmentResponse>(API_PATHS.APPOINTMENTS.BASE, data);
+    // Using regular post instead of offline support to ensure accurate error reporting
+    // Convert undefined values to null for the backend
+    const sanitizedData = {
+      ...data,
+      appointment_date: data.appointment_date || null,
+    };
+    
+    console.log('Creating appointment with data:', sanitizedData);
+    return httpClient.post<AppointmentResponse>(API_PATHS.APPOINTMENTS.BASE, sanitizedData);
   }
 
   /**
@@ -65,7 +73,16 @@ class AppointmentService {
    * Get all appointments for the logged-in patient
    */
   public async getAppointments(): Promise<ApiResponse<AppointmentResponse[]>> {
-    return httpClient.get<AppointmentResponse[]>(API_PATHS.APPOINTMENTS.BASE);
+    try {
+      // Add logging to trace the request
+      console.log('Fetching appointments from API:', API_PATHS.APPOINTMENTS.BASE);
+      const response = await httpClient.get<AppointmentResponse[]>(API_PATHS.APPOINTMENTS.BASE);
+      console.log('Appointments fetch response:', response.isSuccess ? 'Success' : 'Failed');
+      return response;
+    } catch (error) {
+      console.error('Error in appointmentService.getAppointments:', error);
+      throw error;
+    }
   }
 
   /**
@@ -96,21 +113,31 @@ class AppointmentService {
    * Transform API appointment data to frontend Appointment type
    */
   public transformAppointmentData(apiData: AppointmentResponse, queueData?: QueueStatusResponse): Appointment {
-    // Map urgency to conditionType
+    // Map urgency to conditionType (case-insensitive)
     const conditionTypeMap: { [key: string]: ConditionType } = {
+      'EMERGENCY': 'emergency',
       'emergency': 'emergency',
+      'HIGH': 'elderly',
       'high': 'elderly',
+      'NORMAL': 'normal',
       'normal': 'normal',
+      'LOW': 'child',
       'low': 'child',
     };
 
-    // Map status from backend to frontend format
+    // Map status from backend to frontend format (case-insensitive)
     const statusMap: { [key: string]: 'scheduled' | 'waiting' | 'ongoing' | 'completed' | 'cancelled' } = {
+      'SCHEDULED': 'scheduled',
       'scheduled': 'scheduled',
+      'WAITING': 'waiting',
       'waiting': 'waiting',
+      'IN_PROGRESS': 'ongoing',
       'in_progress': 'ongoing',
+      'COMPLETED': 'completed',
       'completed': 'completed',
+      'CANCELLED': 'cancelled',
       'cancelled': 'cancelled',
+      'NO_SHOW': 'cancelled',
       'no_show': 'cancelled',
     };
 

@@ -108,24 +108,34 @@ const AppointmentScreen: React.FC = () => {
                 // Only add to queue if appointment is for today
                 const isToday = format(appointmentDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
 
-                await createAppointment(
+                const success = await createAppointment(
                     authState.user?.gender || 'other',
                     formatDateString(appointmentDate),
                     conditionType,
                     isToday
                 );
                 
-                Alert.alert(
-                    t('success'),
-                    isToday 
-                        ? t('appointmentSuccessToday') 
-                        : t('appointmentSuccessFuture'),
-                    [{ text: 'OK', onPress: () => navigation.navigate('Appointments') }]
-                );
-            } catch (error) {
+                // Only show success message if appointment was actually created
+                if (success) {
+                    Alert.alert(
+                        t('success'),
+                        isToday 
+                            ? t('appointmentSuccessToday') 
+                            : t('appointmentSuccessFuture'),
+                        [{ text: 'OK', onPress: () => navigation.navigate('Appointments') }]
+                    );
+                } else if (queueState.error) {
+                    // Show error from queue context
+                    Alert.alert(
+                        t('error'),
+                        queueState.error || t('appointmentFailed')
+                    );
+                }
+            } catch (error: any) {
+                // Fallback error handling
                 Alert.alert(
                     t('error'),
-                    t('appointmentFailed')
+                    error?.message || t('appointmentFailed')
                 );
             }
         }
