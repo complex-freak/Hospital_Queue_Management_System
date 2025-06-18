@@ -1,4 +1,3 @@
-
 // Define the ProfileData type for updateProfile
 export interface ProfileData {
   name: string;
@@ -6,4 +5,9 @@ export interface ProfileData {
   specialization: string;
   bio?: string;
   contactNumber?: string;
+  licenseNumber?: string;
+  department?: string;
+  consultationFee?: number;
+  education?: string;
+  experience?: string;
 }

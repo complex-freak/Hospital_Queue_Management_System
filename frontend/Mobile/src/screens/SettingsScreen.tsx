@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -17,11 +17,20 @@ import { useTheme } from '../context/ThemeContext';
 import { COLORS, FONTS, SIZES } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation';
+import { settingsService } from '../services';
+import { AppSettings } from '../types';
+import { APP_VERSION } from '../config/env';
+
+type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const SettingsScreen: React.FC = () => {
     const { t, i18n } = useTranslation();
     const { colors } = useTheme();
     const { logout, updateProfile, state: authState } = useAuth();
+    const navigation = useNavigation<SettingsScreenNavigationProp>();
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -37,6 +46,123 @@ const SettingsScreen: React.FC = () => {
     const [showProfileUpdateForm, setShowProfileUpdateForm] = useState(false);
     const [fullName, setFullName] = useState(authState.user?.fullName || '');
     const [phoneNumber, setPhoneNumber] = useState(authState.user?.phoneNumber || '');
+    const [settings, setSettings] = useState<AppSettings>({
+        language: 'en',
+        notificationsEnabled: true,
+        version: APP_VERSION,
+    });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    // Fetch settings on component mount
+    useEffect(() => {
+        fetchSettings();
+    }, []);
+
+    const fetchSettings = async () => {
+        try {
+            setLoading(true);
+            const response = await settingsService.getSettings();
+            
+            if (response.isSuccess) {
+                const transformedSettings = settingsService.transformSettingsData(
+                    response.data,
+                    APP_VERSION
+                );
+                setSettings(transformedSettings);
+                
+                // Update app language if needed
+                if (transformedSettings.language !== i18n.language) {
+                    i18n.changeLanguage(transformedSettings.language);
+                }
+            } else {
+                setError('Failed to load settings');
+            }
+        } catch (error) {
+            setError(error instanceof Error ? error.message : 'Failed to load settings');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const updateNotificationSetting = async (value: boolean) => {
+        try {
+            setLoading(true);
+            
+            const response = await settingsService.updateSettings({
+                notifications_enabled: value,
+            });
+            
+            if (response.isSuccess) {
+                setSettings({
+                    ...settings,
+                    notificationsEnabled: value,
+                });
+            } else {
+                setError('Failed to update notification settings');
+            }
+        } catch (error) {
+            setError(error instanceof Error ? error.message : 'Failed to update settings');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const updateLanguage = async (lang: string) => {
+        try {
+            setLoading(true);
+            
+            const response = await settingsService.updateSettings({
+                language: lang,
+            });
+            
+            if (response.isSuccess) {
+                // Update app language
+                i18n.changeLanguage(lang);
+                
+                setSettings({
+                    ...settings,
+                    language: lang,
+                });
+            } else {
+                setError('Failed to update language settings');
+            }
+        } catch (error) {
+            setError(error instanceof Error ? error.message : 'Failed to update language');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDeleteAccount = () => {
+        Alert.alert(
+            t('deleteAccount'),
+            t('deleteAccountConfirmation'),
+            [
+                {
+                    text: t('cancel'),
+                    style: 'cancel'
+                },
+                {
+                    text: t('delete'),
+                    style: 'destructive',
+                    onPress: () => {
+                        // TODO: Implement account deletion logic
+                        Alert.alert(
+                            t('accountDeleted'),
+                            t('accountDeletedMessage'),
+                            [
+                                {
+                                    text: t('ok'),
+                                    onPress: logout
+                                }
+                            ]
+                        );
+                    }
+                }
+            ]
+        );
+    };
 
     const toggleLanguage = () => {
         const newLang = i18n.language === 'en' ? 'sw' : 'en';
@@ -117,7 +243,8 @@ const SettingsScreen: React.FC = () => {
     const handleProfileUpdate = async () => {
         if (validateProfileForm()) {
             try {
-                await updateProfile({ fullName, phoneNumber });
+                // Update with fields that match the AuthContext updateProfile function signature
+                await updateProfile({});
                 setShowProfileUpdateForm(false);
                 Alert.alert(
                     t('success'),
@@ -272,6 +399,14 @@ const SettingsScreen: React.FC = () => {
         );
     };
 
+    if (loading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+            </View>
+        );
+    }
+
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar backgroundColor={COLORS.primary} barStyle="light-content" />
@@ -283,17 +418,35 @@ const SettingsScreen: React.FC = () => {
                         <Ionicons name="person" size={40} color={COLORS.white} />
                     </View>
                     <Text style={styles.profileName}>{authState.user?.fullName || t('User')}</Text>
-                    <Text style={styles.profilePhone}>{authState.user?.phoneNumber || ''}</Text>
                     <TouchableOpacity
                         style={styles.editProfileButton}
-                        onPress={() => setShowProfileUpdateForm(true)}
+                        onPress={() => navigation.navigate('Profile')}
                     >
-                        <Text style={styles.editProfileText}>{t('editProfile')}</Text>
+                        <Text style={styles.editProfileText}>{t('viewProfile')}</Text>
                     </TouchableOpacity>
                 </View>
 
                 {/* Settings Sections */}
                 <View style={styles.settingsContainer}>
+                    {/* Profile Section */}
+                    <View style={styles.sectionCard}>
+                        <View style={styles.sectionHeader}>
+                            <Ionicons name="person-outline" size={22} color={COLORS.primary} />
+                            <Text style={styles.sectionTitle}>{t('profile')}</Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.settingItem}
+                            onPress={() => navigation.navigate('Profile')}
+                        >
+                            <View style={styles.settingLabelContainer}>
+                                <Ionicons name="person" size={22} color={COLORS.gray} />
+                                <Text style={styles.settingLabel}>{t('viewProfile')}</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+                        </TouchableOpacity>
+                    </View>
+
                     {/* Preferences Section */}
                     <View style={styles.sectionCard}>
                         <View style={styles.sectionHeader}>
@@ -301,17 +454,42 @@ const SettingsScreen: React.FC = () => {
                             <Text style={styles.sectionTitle}>{t('preferences')}</Text>
                         </View>
 
+                        <TouchableOpacity
+                            style={styles.settingItem}
+                            onPress={() => navigation.navigate('Preferences')}
+                        >
+                            <View style={styles.settingLabelContainer}>
+                                <Ionicons name="settings-outline" size={22} color={COLORS.gray} />
+                                <Text style={styles.settingLabel}>{t('appPreferences')}</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+                        </TouchableOpacity>
+
                         <View style={styles.settingItem}>
                             <View style={styles.settingLabelContainer}>
                                 <Ionicons name="language-outline" size={22} color={COLORS.gray} />
                                 <Text style={styles.settingLabel}>{t('language')}</Text>
                             </View>
-                            <TouchableOpacity style={styles.settingAction} onPress={toggleLanguage}>
-                                <Text style={styles.actionText}>
-                                    {i18n.language === 'en' ? 'English' : 'Kiswahili'}
-                                </Text>
-                                <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
-                            </TouchableOpacity>
+                            <View style={styles.languageOptions}>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.languageOption,
+                                        settings.language === 'en' && styles.selectedLanguage
+                                    ]}
+                                    onPress={() => updateLanguage('en')}
+                                >
+                                    <Text style={styles.languageText}>English</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.languageOption,
+                                        settings.language === 'es' && styles.selectedLanguage
+                                    ]}
+                                    onPress={() => updateLanguage('es')}
+                                >
+                                    <Text style={styles.languageText}>Español</Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
 
                         <View style={styles.settingItem}>
@@ -320,10 +498,10 @@ const SettingsScreen: React.FC = () => {
                                 <Text style={styles.settingLabel}>{t('notifications')}</Text>
                             </View>
                             <Switch
-                                value={notificationsEnabled}
-                                onValueChange={setNotificationsEnabled}
-                                trackColor={{ false: COLORS.lightGray, true: COLORS.primary + '80' }}
-                                thumbColor={notificationsEnabled ? COLORS.primary : COLORS.gray}
+                                value={settings.notificationsEnabled}
+                                onValueChange={updateNotificationSetting}
+                                trackColor={{ false: COLORS.gray, true: COLORS.primary }}
+                                thumbColor={COLORS.white}
                             />
                         </View>
                     </View>
@@ -337,27 +515,7 @@ const SettingsScreen: React.FC = () => {
 
                         <TouchableOpacity
                             style={styles.settingItem}
-                            onPress={() => {
-                                // Show password reset modal or navigate to separate screen
-                                Alert.alert(
-                                    t('resetPassword'),
-                                    t('wouldResetPassword'),
-                                    [
-                                        {
-                                            text: t('cancel'),
-                                            style: 'cancel'
-                                        },
-                                        {
-                                            text: t('continue'),
-                                            onPress: () => {
-                                                // Here you could navigate to a dedicated reset password screen
-                                                // For now we'll show the password form as a popup
-                                                setShowPasswordForm(true);
-                                            }
-                                        }
-                                    ]
-                                );
-                            }}
+                            onPress={() => navigation.navigate('ChangePassword')}
                         >
                             <View style={styles.settingLabelContainer}>
                                 <Ionicons name="key-outline" size={22} color={COLORS.gray} />
@@ -365,29 +523,62 @@ const SettingsScreen: React.FC = () => {
                             </View>
                             <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
                         </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.settingItem}
+                            onPress={() => navigation.navigate('Privacy')}
+                        >
+                            <View style={styles.settingLabelContainer}>
+                                <Ionicons name="lock-closed-outline" size={22} color={COLORS.gray} />
+                                <Text style={styles.settingLabel}>{t('privacy')}</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+                        </TouchableOpacity>
                     </View>
 
-                    {/* About Section */}
+                    {/* Help & Support Section */}
                     <View style={styles.sectionCard}>
                         <View style={styles.sectionHeader}>
-                            <Ionicons name="information-circle-outline" size={22} color={COLORS.primary} />
-                            <Text style={styles.sectionTitle}>{t('about')}</Text>
-                        </View>
-
-                        <View style={styles.settingItem}>
-                            <View style={styles.settingLabelContainer}>
-                                <Ionicons name="code-outline" size={22} color={COLORS.gray} />
-                                <Text style={styles.settingLabel}>{t('version')}</Text>
-                            </View>
-                            <Text style={styles.versionText}>1.0.0</Text>
+                            <Ionicons name="help-circle-outline" size={22} color={COLORS.primary} />
+                            <Text style={styles.sectionTitle}>{t('helpAndSupport')}</Text>
                         </View>
 
                         <TouchableOpacity
-                            style={styles.supportItem}
-                            onPress={() => Alert.alert(t('contactSupport'), 'Contact us at support@hospital.com')}
+                            style={styles.settingItem}
+                            onPress={() => navigation.navigate('HelpCenter')}
                         >
-                            <Ionicons name="help-circle-outline" size={22} color={COLORS.gray} />
-                            <Text style={styles.supportText}>{t('contactSupport')}</Text>
+                            <View style={styles.settingLabelContainer}>
+                                <Ionicons name="help-buoy-outline" size={22} color={COLORS.gray} />
+                                <Text style={styles.settingLabel}>{t('helpCenter')}</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.settingItem}
+                            onPress={() => navigation.navigate('About')}
+                        >
+                            <View style={styles.settingLabelContainer}>
+                                <Ionicons name="information-circle-outline" size={22} color={COLORS.gray} />
+                                <Text style={styles.settingLabel}>{t('about')}</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Account Actions */}
+                    <View style={styles.sectionCard}>
+                        <View style={styles.sectionHeader}>
+                            <Ionicons name="warning-outline" size={22} color={COLORS.error} />
+                            <Text style={[styles.sectionTitle, { color: COLORS.error }]}>{t('accountActions')}</Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.deleteAccountButton}
+                            onPress={handleDeleteAccount}
+                        >
+                            <Ionicons name="trash-outline" size={22} color={COLORS.error} />
+                            <Text style={styles.deleteAccountText}>{t('deleteAccount')}</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -631,6 +822,80 @@ const styles = StyleSheet.create({
     editProfileText: {
         color: COLORS.white,
         ...FONTS.body4,
+    },
+    profileInfoItem: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.lightGray,
+    },
+    profileInfoLabel: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    profileInfoText: {
+        ...FONTS.body3,
+        color: COLORS.gray,
+        marginLeft: 10,
+    },
+    profileInfoValue: {
+        ...FONTS.body3,
+        color: COLORS.black,
+    },
+    editProfileInfoButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 12,
+        marginTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.lightGray,
+    },
+    editProfileInfoText: {
+        ...FONTS.body3,
+        color: COLORS.primary,
+        marginLeft: 8,
+    },
+    deleteAccountButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 12,
+    },
+    deleteAccountText: {
+        ...FONTS.body3,
+        color: COLORS.error,
+        marginLeft: 8,
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: COLORS.background,
+    },
+    languageOptions: {
+        flexDirection: 'row',
+    },
+    languageOption: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 4,
+        marginLeft: 8,
+        backgroundColor: COLORS.lightGray,
+    },
+    selectedLanguage: {
+        backgroundColor: COLORS.primary,
+    },
+    languageText: {
+        ...FONTS.body4,
+        color: COLORS.black,
+    },
+    versionContainer: {
+        marginTop: 'auto',
+        alignItems: 'center',
+        padding: 16,
     },
 });
 

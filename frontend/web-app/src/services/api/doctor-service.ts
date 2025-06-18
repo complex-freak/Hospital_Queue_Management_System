@@ -1,155 +1,271 @@
 import api from './client';
 import { ProfileData } from './types';
 import { Patient, ConsultationFeedback, NoteVersion } from '@/types/patient';
-import { mockPatientDetails } from './mock-data';
+import { authService } from './auth-service';
+import { transformToFrontendUser } from './data-transformers';
 
 export const doctorService = {
   // Update doctor availability status
   updateStatus: async (status: { isAvailable: boolean; shiftStart?: string; shiftEnd?: string }) => {
     try {
-      // In a real app, this would be an actual API call
-      // const response = await api.post('/api/doctor/status', status);
-      // return response.data;
+      const user = authService.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const response = await api.post('/doctor/status', {
+        is_available: status.isAvailable,
+        shift_start: status.shiftStart,
+        shift_end: status.shiftEnd
+      });
       
-      // For now, return mock success response
-      return { success: true, message: 'Status updated successfully' };
-    } catch (error) {
+      return { 
+        success: true, 
+        message: 'Status updated successfully',
+        data: response.data
+      };
+    } catch (error: any) {
       console.error('Error updating status:', error);
-      throw error;
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to update status'
+      };
     }
   },
 
   // Update doctor profile
   updateProfile: async (profileData: ProfileData) => {
     try {
-      // In a real app, this would be an actual API call
-      // const response = await api.put('/api/doctor/profile', profileData);
-      // return response.data;
+      const user = authService.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
       
-      // For now, return mock success response after a short delay
-      await new Promise(resolve => setTimeout(resolve, 800));
-      return { success: true, message: 'Profile updated successfully' };
-    } catch (error) {
+      const response = await api.put('/doctor/profile', {
+        specialization: profileData.specialization,
+        license_number: profileData.licenseNumber,
+        department: profileData.department,
+        consultation_fee: profileData.consultationFee,
+        bio: profileData.bio,
+        education: profileData.education,
+        experience: profileData.experience
+      });
+      
+      return { 
+        success: true, 
+        message: 'Profile updated successfully',
+        data: response.data
+      };
+    } catch (error: any) {
       console.error('Error updating profile:', error);
-      throw error;
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to update profile'
+      };
     }
   },
 
   // Get detailed patient information
   getPatientDetails: async (patientId: string) => {
     try {
-      // In a real app, this would be an actual API call
-      // const response = await api.get(`/api/patients/${patientId}`);
-      // return response.data;
+      const response = await api.get(`/doctor/patients/${patientId}`);
       
-      // For now, use mock data
-      await new Promise(resolve => setTimeout(resolve, 600));
-      
-      // Find the patient in our mock data or create a generic one
-      const mockPatient = mockPatientDetails[patientId] || {
-        ...mockPatientDetails.default,
-        id: patientId
+      return {
+        success: true,
+        data: transformToFrontendUser(response.data)
       };
-      
-      return { success: true, data: mockPatient };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching patient details:', error);
-      throw error;
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to fetch patient details'
+      };
     }
   },
 
   // Save medical notes for a patient
   savePatientNotes: async (patientId: string, notes: string) => {
     try {
-      // In a real app, this would be an actual API call
-      // const response = await api.post(`/api/patients/${patientId}/notes`, { notes });
-      // return response.data;
+      const response = await api.post(`/doctor/patients/${patientId}/notes`, { 
+        content: notes 
+      });
       
-      // For now, return mock success response after a short delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      return { success: true, message: 'Notes saved successfully' };
-    } catch (error) {
+      return { 
+        success: true, 
+        message: 'Notes saved successfully',
+        data: response.data
+      };
+    } catch (error: any) {
       console.error('Error saving patient notes:', error);
-      throw error;
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to save notes'
+      };
     }
   },
 
   // Get note history for a patient
   getNoteHistory: async (patientId: string) => {
     try {
-      // In a real app, this would be an actual API call
-      // const response = await api.get(`/api/patients/${patientId}/notes/history`);
-      // return response.data;
+      const response = await api.get(`/doctor/patients/${patientId}/notes/history`);
       
-      // For now, generate mock note history
-      await new Promise(resolve => setTimeout(resolve, 400));
+      // Transform history data to match frontend format
+      const transformedHistory: NoteVersion[] = response.data.map((note: any) => ({
+        id: note.id,
+        content: note.content,
+        timestamp: new Date(note.created_at).toISOString(),
+        doctorName: note.doctor_name || 'Unknown Doctor'
+      }));
       
-      // Generate some fake history for demo purposes
-      const mockHistory: NoteVersion[] = [
-        {
-          id: '1',
-          content: '<p>Initial assessment: Patient presents with fever and headache for two days.</p>',
-          timestamp: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
-          doctorName: 'Dr. Sarah Johnson'
-        },
-        {
-          id: '2',
-          content: '<p>Follow-up: Fever has subsided, still has mild headache.</p><p>Recommended continued rest and hydration.</p>',
-          timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
-          doctorName: 'Dr. Michael Chen'
-        },
-        {
-          id: '3',
-          content: '<p>Second follow-up: All symptoms have cleared. Patient is ready to return to normal activities.</p><ul><li>Headache: Gone</li><li>Fever: None</li><li>Energy levels: Normal</li></ul>',
-          timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
-          doctorName: 'Dr. Elizabeth Taylor'
-        }
-      ];
-      
-      return { success: true, data: mockHistory };
-    } catch (error) {
+      return { 
+        success: true, 
+        data: transformedHistory 
+      };
+    } catch (error: any) {
       console.error('Error fetching note history:', error);
-      throw error;
+      
+      // If endpoint is not yet implemented, return empty array
+      if (error.response?.status === 404) {
+        return {
+          success: true,
+          data: []
+        };
+      }
+      
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to fetch notes history'
+      };
     }
   },
 
   // Save a new version of notes
   saveNoteVersion: async (patientId: string, content: string) => {
     try {
-      // In a real app, this would be an actual API call
-      // const response = await api.post(`/api/patients/${patientId}/notes/versions`, { content });
-      // return response.data;
+      const response = await api.post(`/doctor/patients/${patientId}/notes/versions`, { 
+        content: content 
+      });
       
-      // For now, return mock success response after a short delay
-      await new Promise(resolve => setTimeout(resolve, 600));
-      
-      const newVersion: NoteVersion = {
-        id: Date.now().toString(),
-        content,
-        timestamp: new Date().toISOString(),
-        doctorName: 'Dr. Current User' // In a real app, this would be the logged-in doctor's name
+      // Transform to frontend format
+      const transformedNote: NoteVersion = {
+        id: response.data.id,
+        content: response.data.content,
+        timestamp: new Date(response.data.created_at).toISOString(),
+        doctorName: response.data.doctor_name || 'Unknown Doctor'
       };
       
-      return { success: true, data: newVersion, message: 'Note version saved successfully' };
-    } catch (error) {
+      return { 
+        success: true, 
+        data: transformedNote, 
+        message: 'Note version saved successfully' 
+      };
+    } catch (error: any) {
       console.error('Error saving note version:', error);
-      throw error;
+      
+      // If endpoint is not yet implemented, fallback to regular notes
+      if (error.response?.status === 404) {
+        return doctorService.savePatientNotes(patientId, content);
+      }
+      
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to save note version'
+      };
     }
   },
 
   // Submit consultation feedback
   submitConsultation: async (consultationData: ConsultationFeedback) => {
     try {
-      // In a real app, this would be an actual API call
-      // const response = await api.post('/api/consultations', consultationData);
-      // return response.data;
+      const response = await api.post('/doctor/consultations', {
+        patient_id: consultationData.patientId,
+        appointment_id: consultationData.appointmentId,
+        diagnosis: consultationData.diagnosis,
+        treatment: consultationData.treatment,
+        prescription: consultationData.prescription,
+        follow_up: consultationData.followUp,
+        notes: consultationData.notes,
+        duration: consultationData.duration
+      });
       
-      // For now, return mock success response after a short delay
-      await new Promise(resolve => setTimeout(resolve, 800));
-      return { success: true, message: 'Consultation submitted successfully' };
-    } catch (error) {
+      return { 
+        success: true, 
+        message: 'Consultation submitted successfully',
+        data: response.data
+      };
+    } catch (error: any) {
       console.error('Error submitting consultation:', error);
-      throw error;
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to submit consultation'
+      };
+    }
+  },
+  
+  // Get doctor queue
+  getDoctorQueue: async () => {
+    try {
+      const response = await api.get('/doctor/queue');
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error: any) {
+      console.error('Error fetching doctor queue:', error);
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to fetch doctor queue'
+      };
+    }
+  },
+  
+  // Get next patient
+  getNextPatient: async () => {
+    try {
+      const response = await api.get('/doctor/queue/next');
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error: any) {
+      console.error('Error fetching next patient:', error);
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to fetch next patient'
+      };
+    }
+  },
+  
+  // Mark patient as served
+  markPatientServed: async (queueId: string, notes?: string) => {
+    try {
+      const response = await api.post(`/doctor/queue/${queueId}/serve`, { notes });
+      return {
+        success: true,
+        data: response.data,
+        message: 'Patient marked as served'
+      };
+    } catch (error: any) {
+      console.error('Error marking patient as served:', error);
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to mark patient as served'
+      };
+    }
+  },
+  
+  // Get dashboard stats
+  getDashboardStats: async () => {
+    try {
+      const response = await api.get('/doctor/dashboard/stats');
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error: any) {
+      console.error('Error fetching dashboard stats:', error);
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to fetch dashboard stats'
+      };
     }
   }
 };
+
+export default doctorService;

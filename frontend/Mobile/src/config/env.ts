@@ -8,7 +8,7 @@ export const ENVIRONMENT: Environment = 'development';
 
 // API URLs for different environments
 const API_URLS = {
-  development: 'http://192.168.137.187:8000', // Local development (using your IP address)
+  development: 'http://192.168.137.103:8000', // Local development (using your IP address)
   staging: 'https://staging-api.hospitalapp.com',
   production: 'https://api.hospitalapp.com',
 };
@@ -39,24 +39,24 @@ export const REQUEST_CONFIG = {
 // API Paths
 export const API_PATHS = {
   AUTH: {
-    REGISTER: '/api/v1/patients/register',
-    LOGIN: '/api/v1/patients/login',
-    PROFILE: '/api/v1/patients/profile',
-    COMPLETE_PROFILE: '/api/v1/patients/complete-profile',
-    DELETE_ACCOUNT: '/api/v1/patients/delete-account',
-    CHANGE_PASSWORD: '/api/v1/patients/change-password',
+    REGISTER: '/api/v1/patient/register',
+    LOGIN: '/api/v1/patient/login',
+    PROFILE: '/api/v1/patient/profile',
+    COMPLETE_PROFILE: '/api/v1/patient/complete-profile',
+    DELETE_ACCOUNT: '/api/v1/patient/delete-account',
+    CHANGE_PASSWORD: '/api/v1/patient/change-password',
   },
   APPOINTMENTS: {
-    BASE: '/api/v1/patients/appointments',
-    QUEUE_STATUS: '/api/v1/patients/queue-status',
+    BASE: '/api/v1/patient/appointments',
+    QUEUE_STATUS: '/api/v1/patient/queue-status',
   },
   NOTIFICATIONS: {
-    BASE: '/api/v1/patients/notifications',
-    READ: (id: string) => `/api/v1/patients/notifications/${id}/read`,
-    DEVICE_TOKEN: '/api/v1/patients/device-token',
+    BASE: '/api/v1/patient/notifications',
+    READ: (id: string) => `/api/v1/patient/notifications/${id}/read`,
+    DEVICE_TOKEN: '/api/v1/patient/device-token',
   },
   SETTINGS: {
-    BASE: '/api/v1/patients/settings',
+    BASE: '/api/v1/patient/settings',
   }
 };
 

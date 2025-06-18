@@ -1,5 +1,5 @@
 import { Toaster } from "@/components/ui/toaster";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/use-auth-context";
 import { LanguageProvider } from "@/contexts/language-context";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
@@ -7,6 +7,7 @@ import RoleBasedRoute from "@/components/auth/RoleBasedRoute";
 import Login from "@/pages/Login";
 import ForgotPassword from "@/pages/ForgotPassword";
 import NotFound from "@/pages/NotFound";
+import LoadingScreen from "@/components/ui/loading-screen";
 
 // Doctor features
 import DoctorDashboard from "@/features/doctor/pages/Dashboard";
@@ -26,6 +27,36 @@ import ReportingTools from "@/features/admin/pages/ReportingTools";
 // Shared features
 import Profile from "@/pages/Profile";
 
+// Protected route component that requires authentication
+const ProtectedRouteComponent = ({ requiredRoles = [] }: { requiredRoles?: string[] }) => {
+  const { isAuthenticated, user, isLoading } = useAuth();
+
+  // Show loading screen while authentication state is being determined
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+
+  // If not authenticated, redirect to login
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // If roles are specified and user doesn't have required role, redirect to appropriate dashboard
+  if (requiredRoles.length > 0 && user?.role && !requiredRoles.includes(user.role)) {
+    if (user.role === 'doctor') {
+      return <Navigate to="/doctor/dashboard" replace />;
+    } else if (user.role === 'receptionist' || user.role === 'staff') {
+      return <Navigate to="/receptionist/dashboard" replace />;
+    } else if (user.role === 'admin') {
+      return <Navigate to="/admin/dashboard" replace />;
+    }
+    return <Navigate to="/" replace />;
+  }
+
+  // If authenticated and has required role, render the routes
+  return <Outlet />;
+};
+
 const App = () => (
   <LanguageProvider>
     <AuthProvider>
@@ -37,10 +68,10 @@ const App = () => (
           <Route path="/forgot-password" element={<ForgotPassword />} />
           
           {/* Protected routes */}
-          <Route element={<ProtectedRoute />}>
+          <Route element={<ProtectedRouteComponent requiredRoles={['doctor']} />}>
             {/* Doctor routes */}
             <Route 
-              path="/doctor/dashboard" 
+              path="/doctor/*" 
               element={
                 <RoleBasedRoute allowedRoles={['doctor']}>
                   <DoctorDashboard />
@@ -50,9 +81,9 @@ const App = () => (
             
             {/* Receptionist routes */}
             <Route 
-              path="/receptionist/dashboard" 
+              path="/receptionist/*" 
               element={
-                <RoleBasedRoute allowedRoles={['receptionist']}>
+                <RoleBasedRoute allowedRoles={['receptionist', 'staff']}>
                   <ReceptionistDashboard />
                 </RoleBasedRoute>
               } 
@@ -68,7 +99,7 @@ const App = () => (
             
             {/* Admin routes */}
             <Route 
-              path="/admin/dashboard" 
+              path="/admin/*" 
               element={
                 <RoleBasedRoute allowedRoles={['admin']}>
                   <AdminDashboard />

@@ -2,11 +2,12 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text } from 'react-native';
+import { Text, ActivityIndicator, View, StyleSheet } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { COLORS, FONTS } from '../constants/theme';
+import NetworkStatusBar from '../components/NetworkStatusBar';
 
 // Import screens
 import LoginScreen from '../screens/LoginScreen';
@@ -19,6 +20,13 @@ import NotificationsScreen from '../screens/NotificationsScreen';
 import HelpScreen from '../screens/HelpScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
+import AboutScreen from '../screens/AboutScreen';
+import ChangePasswordScreen from '../screens/ChangePasswordScreen';
+import HelpCenterScreen from '../screens/HelpCenterScreen';
+import PreferencesScreen from '../screens/PreferencesScreen';
+import PrivacyScreen from '../screens/PrivacyScreen';
+import ProfileScreen from '../screens/ProfileScreen';
+import OnboardingScreen from '../screens/OnboardingScreen';
 
 // Define types for navigation
 export type AuthStackParamList = {
@@ -38,9 +46,16 @@ export type MainTabParamList = {
 export type RootStackParamList = {
     Auth: undefined;
     MainTabs: { screen?: keyof MainTabParamList };
+    Onboarding: undefined;
     Appointment: undefined;
     Appointments: undefined;
     Help: undefined;
+    About: undefined;
+    ChangePassword: undefined;
+    HelpCenter: undefined;
+    Preferences: undefined;
+    Privacy: undefined;
+    Profile: undefined;
 };
 
 // Create stack navigators
@@ -163,6 +178,18 @@ const MainTabNavigator = () => {
     );
 };
 
+// Loading Component
+const LoadingScreen = () => {
+    const { t } = useTranslation();
+    
+    return (
+        <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+            <Text style={styles.loadingText}>{t('loading')}</Text>
+        </View>
+    );
+};
+
 // Root Navigator
 const Navigation = () => {
     const { t } = useTranslation();
@@ -171,20 +198,39 @@ const Navigation = () => {
 
     // Show loading screen while checking auth status
     if (loading) {
-        return <Text>{t('loading')}</Text>;
+        return <LoadingScreen />;
     }
 
     return (
         <NavigationContainer>
+            <NetworkStatusBar />
             <RootStack.Navigator
                 screenOptions={{
                     headerShown: false,
                 }}
             >
-                {user ? (
-                    // User is signed in
+                {!user ? (
+                    // User is not signed in
+                    <RootStack.Screen name="Auth" component={AuthNavigator} />
+                ) : user.isProfileComplete === false ? (
+                    // User is signed in but profile is not complete
+                    <RootStack.Screen 
+                        name="Onboarding" 
+                        component={OnboardingScreen} 
+                        options={{
+                            headerShown: false,
+                        }}
+                    />
+                ) : (
+                    // User is signed in with complete profile
                     <>
-                        <RootStack.Screen name="MainTabs" component={MainTabNavigator} />
+                        <RootStack.Screen 
+                            name="MainTabs" 
+                            component={MainTabNavigator}
+                            options={{
+                                headerShown: false,
+                            }}
+                        />
                         <RootStack.Screen
                             name="Appointment"
                             component={AppointmentScreen}
@@ -216,14 +262,134 @@ const Navigation = () => {
                                 headerTintColor: COLORS.white,
                             }}
                         />
+                        <RootStack.Screen
+                            name="About"
+                            component={AboutScreen}
+                            options={{
+                                headerShown: true,
+                                headerTitle: t('about'),
+                                headerStyle: {
+                                    backgroundColor: COLORS.primary,
+                                },
+                                headerTitleStyle: {
+                                    color: COLORS.white,
+                                    ...FONTS.h3,
+                                },
+                                headerTitleAlign: 'center',
+                                headerTintColor: COLORS.white,
+                            }}
+                        />
+                        <RootStack.Screen
+                            name="ChangePassword"
+                            component={ChangePasswordScreen}
+                            options={{
+                                headerShown: true,
+                                headerTitle: t('changePassword'),
+                                headerStyle: {
+                                    backgroundColor: COLORS.primary,
+                                },
+                                headerTitleStyle: {
+                                    color: COLORS.white,
+                                    ...FONTS.h3,
+                                },
+                                headerTitleAlign: 'center',
+                                headerTintColor: COLORS.white,
+                            }}
+                        />
+                        <RootStack.Screen
+                            name="HelpCenter"
+                            component={HelpCenterScreen}
+                            options={{
+                                headerShown: true,
+                                headerTitle: t('helpCenter'),
+                                headerStyle: {
+                                    backgroundColor: COLORS.primary,
+                                },
+                                headerTitleStyle: {
+                                    color: COLORS.white,
+                                    ...FONTS.h3,
+                                },
+                                headerTitleAlign: 'center',
+                                headerTintColor: COLORS.white,
+                            }}
+                        />
+                        <RootStack.Screen
+                            name="Preferences"
+                            component={PreferencesScreen}
+                            options={{
+                                headerShown: true,
+                                headerTitle: t('preferences'),
+                                headerStyle: {
+                                    backgroundColor: COLORS.primary,
+                                },
+                                headerTitleStyle: {
+                                    color: COLORS.white,
+                                    ...FONTS.h3,
+                                },
+                                headerTitleAlign: 'center',
+                                headerTintColor: COLORS.white,
+                            }}
+                        />
+                        <RootStack.Screen
+                            name="Privacy"
+                            component={PrivacyScreen}
+                            options={{
+                                headerShown: true,
+                                headerTitle: t('privacy'),
+                                headerStyle: {
+                                    backgroundColor: COLORS.primary,
+                                },
+                                headerTitleStyle: {
+                                    color: COLORS.white,
+                                    ...FONTS.h3,
+                                },
+                                headerTitleAlign: 'center',
+                                headerTintColor: COLORS.white,
+                            }}
+                        />
+                        <RootStack.Screen
+                            name="Profile"
+                            component={ProfileScreen}
+                            options={{
+                                headerShown: true,
+                                headerTitle: t('profile'),
+                                headerStyle: {
+                                    backgroundColor: COLORS.primary,
+                                },
+                                headerTitleStyle: {
+                                    color: COLORS.white,
+                                    ...FONTS.h3,
+                                },
+                                headerTitleAlign: 'center',
+                                headerTintColor: COLORS.white,
+                            }}
+                        />
+                        <RootStack.Screen
+                            name="Onboarding"
+                            component={OnboardingScreen}
+                            options={{
+                                headerShown: false,
+                            }}
+                        />
                     </>
-                ) : (
-                    // User is not signed in
-                    <RootStack.Screen name="Auth" component={AuthNavigator} />
                 )}
             </RootStack.Navigator>
         </NavigationContainer>
     );
 };
+
+const styles = StyleSheet.create({
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: COLORS.background,
+    },
+    loadingText: {
+        ...FONTS.body3,
+        color: COLORS.primary,
+        marginTop: 10,
+    },
+});
 
 export default Navigation; 

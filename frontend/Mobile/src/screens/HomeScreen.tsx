@@ -49,7 +49,12 @@ const HomeScreen: React.FC = () => {
             icon: 'time-outline',
             color: COLORS.warning,
             description: t('checkQueuePosition'),
-            onPress: () => navigation.navigate('MainTabs', { screen: 'QueueStatus' }),
+            onPress: () => {
+                const parent = navigation.getParent();
+                if (parent) {
+                    parent.navigate('MainTabs', { screen: 'QueueStatus' });
+                }
+            },
         },
         {
             id: 'notifications',
@@ -57,7 +62,12 @@ const HomeScreen: React.FC = () => {
             icon: 'notifications-outline',
             color: COLORS.info,
             description: t('viewNotifications'),
-            onPress: () => navigation.navigate('MainTabs', { screen: 'Notifications' }),
+            onPress: () => {
+                const parent = navigation.getParent();
+                if (parent) {
+                    parent.navigate('MainTabs', { screen: 'Notifications' });
+                }
+            },
         },
         {
             id: 'help',

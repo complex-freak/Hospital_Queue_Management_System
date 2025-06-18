@@ -151,7 +151,7 @@ const OnboardingScreen: React.FC = () => {
             try {
                 // Use authService directly to complete profile
                 const response = await authService.completeProfile({
-                    email,
+                    ...(email ? { email } : {}), // Only include email if it's provided
                     date_of_birth: dateOfBirth ? dateOfBirth.toISOString() : null,  // Send as ISO string
                     gender: gender.toLowerCase(),
                     address,
@@ -170,7 +170,7 @@ const OnboardingScreen: React.FC = () => {
                     
                     // Update user in context
                     await updateProfile({
-                        email,
+                        ...(email ? { email } : {}), // Only include email if it's provided
                         dateOfBirth: dateOfBirth?.toISOString(),
                         gender: gender.toLowerCase() as 'male' | 'female' | 'other',
                         address,
@@ -180,7 +180,10 @@ const OnboardingScreen: React.FC = () => {
                     });
                     
                     // Navigate to main app
-                    navigation.navigate('MainTabs', { screen: 'Home' });
+                    navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'MainTabs' }],
+                    });
                 } else {
                     Alert.alert(
                         t('Error'),
@@ -223,7 +226,7 @@ const OnboardingScreen: React.FC = () => {
                         <View style={styles.inputContainer}>
                             <TextInput
                                 style={styles.input}
-                                placeholder={t('email')}
+                                placeholder={t('email') + ' (' + t('optional') + ')'}
                                 value={email}
                                 onChangeText={(text) => handleInputChange('email', text)}
                                 keyboardType="email-address"

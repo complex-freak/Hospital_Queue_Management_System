@@ -1,15 +1,19 @@
 from typing import Optional
-from datetime import timedelta
+from datetime import timedelta, datetime
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
+from uuid import UUID
+import logging
 
 from database import get_db
-from models import Patient, Appointment
+from models import Patient, Appointment, Notification, DeviceToken, PatientSettings
 from schemas import (
     PatientCreate, PatientUpdate, PatientLogin, Patient as PatientSchema,
-    Token, QueueStatusResponse, Appointment as AppointmentSchema
+    Token, QueueStatusResponse, Appointment as AppointmentSchema,
+    Notification as NotificationSchema, DeviceToken as DeviceTokenSchema,
+    SettingsSchema, SettingsUpdateSchema
 )
 from services import AuthService, QueueService
 from api.core.security import create_access_token, get_password_hash, verify_password
@@ -82,7 +86,7 @@ async def complete_patient_profile(
         print(f"Received update data: {update_data}")
         
         # Ensure all required fields are provided
-        required_fields = ['email', 'gender', 'address', 'emergency_contact']  # Remove date_of_birth from required
+        required_fields = ['gender', 'address', 'emergency_contact']  # Email is now optional
         missing_fields = []
         
         for field in required_fields:
@@ -438,3 +442,135 @@ async def change_password(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Password change failed: {str(e)}"
         )
+
+
+@router.get("/notifications", response_model=list[NotificationSchema])
+async def get_patient_notifications(
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get patient notifications"""
+    result = await db.execute(
+        select(Notification)
+        .where(Notification.patient_id == current_patient.id)
+        .order_by(Notification.created_at.desc())
+    )
+    notifications = result.scalars().all()
+    return notifications
+
+
+@router.put("/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: UUID,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Mark notification as read"""
+    result = await db.execute(
+        select(Notification)
+        .where(
+            Notification.id == notification_id,
+            Notification.patient_id == current_patient.id
+        )
+    )
+    notification = result.scalar_one_or_none()
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    notification.read = True
+    await db.commit()
+    return {"success": True}
+
+
+@router.post("/device-token")
+async def register_device_token(
+    token_data: DeviceTokenSchema,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Register device token for push notifications"""
+    # Check if token already exists
+    result = await db.execute(
+        select(DeviceToken)
+        .where(
+            DeviceToken.token == token_data.token,
+            DeviceToken.patient_id == current_patient.id
+        )
+    )
+    existing_token = result.scalar_one_or_none()
+    
+    if existing_token:
+        # Update existing token
+        existing_token.updated_at = datetime.utcnow()
+        await db.commit()
+    else:
+        # Create new token record
+        new_token = DeviceToken(
+            patient_id=current_patient.id,
+            token=token_data.token,
+            device_type=token_data.device_type
+        )
+        db.add(new_token)
+        await db.commit()
+    
+    return {"success": True}
+
+
+@router.get("/settings", response_model=SettingsSchema)
+async def get_patient_settings(
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get patient app settings"""
+    result = await db.execute(
+        select(PatientSettings)
+        .where(PatientSettings.patient_id == current_patient.id)
+    )
+    settings = result.scalar_one_or_none()
+    
+    if not settings:
+        # Create default settings
+        settings = PatientSettings(
+            patient_id=current_patient.id,
+            language="en",
+            notifications_enabled=True
+        )
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+    
+    return settings
+
+
+@router.put("/settings", response_model=SettingsSchema)
+async def update_patient_settings(
+    settings_data: SettingsUpdateSchema,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update patient app settings"""
+    result = await db.execute(
+        select(PatientSettings)
+        .where(PatientSettings.patient_id == current_patient.id)
+    )
+    settings = result.scalar_one_or_none()
+    
+    if not settings:
+        # Create settings with provided data
+        settings = PatientSettings(
+            patient_id=current_patient.id,
+            language=settings_data.language or "en",
+            notifications_enabled=settings_data.notifications_enabled 
+                if settings_data.notifications_enabled is not None else True
+        )
+        db.add(settings)
+    else:
+        # Update existing settings
+        if settings_data.language is not None:
+            settings.language = settings_data.language
+        if settings_data.notifications_enabled is not None:
+            settings.notifications_enabled = settings_data.notifications_enabled
+    
+    await db.commit()
+    await db.refresh(settings)
+    return settings

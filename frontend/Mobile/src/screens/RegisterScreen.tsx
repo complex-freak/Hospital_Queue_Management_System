@@ -104,7 +104,12 @@ const RegisterScreen: React.FC = () => {
     const handleRegister = async () => {
         if (validateForm()) {
             try {
-                await register(fullName, phoneNumber, password);
+                // Split fullName into first_name and last_name
+                const nameParts = fullName.trim().split(' ');
+                const firstName = nameParts[0];
+                const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+                
+                await register(firstName, lastName, phoneNumber, password);
             } catch (error) {
                 console.error('Registration error:', error);
             }

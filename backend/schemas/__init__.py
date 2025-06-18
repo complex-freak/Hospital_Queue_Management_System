@@ -88,7 +88,7 @@ class PatientLogin(BaseModel):
 class Patient(PatientBase, BaseSchema):
     id: UUID
     is_active: bool
-    created_at: datetime
+    created_at: Optional[datetime] = None  # Make created_at optional to fix validation error
     updated_at: Optional[datetime] = None
 
 
@@ -350,3 +350,40 @@ class ConflictResolution(BaseModel):
     conflict_id: str
     resolution: str  # client, server, merge
     resolution_data: Optional[Dict[str, Any]] = None
+
+
+# Device Token schema
+class DeviceToken(BaseSchema):
+    id: UUID
+    patient_id: UUID
+    token: str
+    device_type: str
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+class DeviceTokenSchema(BaseModel):
+    token: str
+    device_type: str = Field(..., pattern=r'^(ios|android|web)$')
+
+
+# Settings schemas
+class SettingsSchema(BaseSchema):
+    id: UUID
+    patient_id: UUID
+    language: str = "en"
+    notifications_enabled: bool = True
+    sms_notifications: bool = True
+    email_notifications: bool = False
+    push_notifications: bool = True
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+class SettingsUpdateSchema(BaseModel):
+    language: Optional[str] = None
+    notifications_enabled: Optional[bool] = None
+    sms_notifications: Optional[bool] = None
+    email_notifications: Optional[bool] = None
+    push_notifications: Optional[bool] = None

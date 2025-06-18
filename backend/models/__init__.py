@@ -24,14 +24,6 @@ class AppointmentStatus(str, Enum):
     NO_SHOW = "no_show"
 
 
-class QueueStatus(str, Enum):
-    WAITING = "waiting"
-    CALLED = "called"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    SKIPPED = "skipped"
-
-
 class UrgencyLevel(str, Enum):
     LOW = "low"
     NORMAL = "normal"
@@ -39,10 +31,20 @@ class UrgencyLevel(str, Enum):
     EMERGENCY = "emergency"
 
 
+class QueueStatus(str, Enum):
+    WAITING = "waiting"
+    CALLED = "called"
+    SERVING = "serving"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    NO_SHOW = "no_show"
+
+
 class NotificationType(str, Enum):
     SMS = "sms"
-    PUSH = "push"
     EMAIL = "email"
+    PUSH = "push"
+    SYSTEM = "system"
 
 
 class AuditAction(str, Enum):
@@ -52,9 +54,9 @@ class AuditAction(str, Enum):
     DELETE = "delete"
     LOGIN = "login"
     LOGOUT = "logout"
-    CALL = "call"
-    SKIP = "skip"
-    COMPLETE = "complete"
+    REGISTER = "register"
+    DEACTIVATE = "deactivate"
+    REACTIVATE = "reactivate"
 
 
 class AuditResource(str, Enum):
@@ -196,3 +198,35 @@ class AuditLog(Base):
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DeviceToken(Base):
+    __tablename__ = "device_tokens"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
+    token = Column(String(512), nullable=False)
+    device_type = Column(String(20), nullable=False)  # ios, android, web
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationship
+    patient = relationship("Patient")
+
+
+class PatientSettings(Base):
+    __tablename__ = "patient_settings"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), unique=True, nullable=False)
+    language = Column(String(10), default="en")
+    notifications_enabled = Column(Boolean, default=True)
+    sms_notifications = Column(Boolean, default=True)
+    email_notifications = Column(Boolean, default=False)
+    push_notifications = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationship
+    patient = relationship("Patient")

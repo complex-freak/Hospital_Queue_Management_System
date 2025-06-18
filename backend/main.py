@@ -115,7 +115,7 @@ async def root():
 # Include routers with prefixes
 app.include_router(
     patient.router,
-    prefix="/api/v1/patients",
+    prefix="/api/v1/patient",
     tags=["Patients"]
 )
 

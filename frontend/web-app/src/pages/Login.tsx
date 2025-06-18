@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/hooks/use-auth-context';
+import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/contexts/language-context';
 import LanguageSwitcher from '@/components/language/LanguageSwitcher';
 import {
@@ -19,6 +19,8 @@ import {
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader } from '@/components/ui/loader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { toast } from '@/hooks/use-toast';
 
 const formSchema = z.object({
   username: z.string().min(2, {
@@ -30,7 +32,7 @@ const formSchema = z.object({
 });
 
 const Login = () => {
-  const { login } = useAuth();
+  const { login, doctorLogin, isLoading, error, clearError } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,19 +48,37 @@ const Login = () => {
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
+    clearError?.();
+    
     try {
-      await login(values.username, values.password, selectedRole);
+      let success = false;
       
-      // Navigate to the appropriate dashboard based on role
       if (selectedRole === 'doctor') {
-        navigate('/doctor/dashboard');
-      } else if (selectedRole === 'receptionist') {
-        navigate('/receptionist/dashboard');
-      } else if (selectedRole === 'admin') {
-        navigate('/admin/dashboard');
+        success = await doctorLogin(values.username, values.password);
+        if (success) navigate('/doctor/dashboard');
+      } else {
+        success = await login(values.username, values.password);
+        if (success) {
+          if (selectedRole === 'receptionist') {
+            navigate('/receptionist/dashboard');
+          } else if (selectedRole === 'admin') {
+            navigate('/admin/dashboard');
+          }
+        }
       }
-    } catch (error) {
-      // Error handling is done in the auth context
+      
+      if (success) {
+        toast({
+          title: "Login successful",
+          description: `Welcome back, ${values.username}!`,
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Login failed",
+        description: error.message || "Invalid username or password",
+        variant: "destructive",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -79,10 +99,19 @@ const Login = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          
           <Tabs 
             defaultValue="doctor" 
             className="mb-6"
-            onValueChange={(value) => setSelectedRole(value as 'doctor' | 'receptionist' | 'admin')}
+            onValueChange={(value) => {
+              setSelectedRole(value as 'doctor' | 'receptionist' | 'admin');
+              clearError?.();
+            }}
           >
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="doctor">Doctor</TabsTrigger>
@@ -124,7 +153,7 @@ const Login = () => {
                               : "admin"
                         } 
                         {...field} 
-                        disabled={isSubmitting} 
+                        disabled={isSubmitting || isLoading} 
                       />
                     </FormControl>
                     <FormMessage />
@@ -142,7 +171,7 @@ const Login = () => {
                         type="password" 
                         placeholder="••••••" 
                         {...field} 
-                        disabled={isSubmitting} 
+                        disabled={isSubmitting || isLoading} 
                       />
                     </FormControl>
                     <FormMessage />
@@ -161,9 +190,9 @@ const Login = () => {
               <Button 
                 type="submit" 
                 className="w-full bg-blue-600 hover:bg-blue-700" 
-                disabled={isSubmitting}
+                disabled={isSubmitting || isLoading}
               >
-                {isSubmitting ? (
+                {(isSubmitting || isLoading) ? (
                   <>
                     <Loader className="mr-2 h-4 w-4" />
                     {t('loggingIn')}
@@ -177,10 +206,14 @@ const Login = () => {
         </CardContent>
         <CardFooter className="text-center text-sm text-gray-500">
           <p className="w-full">
-            For demo purposes, use: <br />
-            Doctor: username: doctor | password: password <br />
-            Receptionist: username: receptionist | password: password <br />
-            Admin: username: admin | password: admin123
+            {import.meta.env.DEV && (
+              <>
+                For demo purposes, use: <br />
+                Doctor: username: doctor | password: password <br />
+                Receptionist: username: receptionist | password: password <br />
+                Admin: username: admin | password: admin123
+              </>
+            )}
           </p>
         </CardFooter>
       </Card>

@@ -48,14 +48,14 @@ export interface AppointmentResponse {
 
 class AppointmentService {
   /**
-   * Create a new appointment
+   * Create a new appointment with offline support
    */
   public async createAppointment(data: CreateAppointmentRequest): Promise<ApiResponse<AppointmentResponse>> {
-    return httpClient.post<AppointmentResponse>(API_PATHS.APPOINTMENTS.BASE, data);
+    return httpClient.postWithOfflineSupport<AppointmentResponse>(API_PATHS.APPOINTMENTS.BASE, data);
   }
 
   /**
-   * Get queue status for an appointment
+   * Get queue status for an appointment - requires online connection
    */
   public async getQueueStatus(appointmentId: string): Promise<ApiResponse<QueueStatusResponse>> {
     return httpClient.get<QueueStatusResponse>(`${API_PATHS.APPOINTMENTS.QUEUE_STATUS}?appointment_id=${appointmentId}`);
@@ -76,20 +76,20 @@ class AppointmentService {
   }
 
   /**
-   * Update appointment details
+   * Update appointment details with offline support
    */
   public async updateAppointment(
     id: string, 
     data: Partial<CreateAppointmentRequest>
   ): Promise<ApiResponse<AppointmentResponse>> {
-    return httpClient.put<AppointmentResponse>(`${API_PATHS.APPOINTMENTS.BASE}/${id}`, data);
+    return httpClient.putWithOfflineSupport<AppointmentResponse>(`${API_PATHS.APPOINTMENTS.BASE}/${id}`, data);
   }
 
   /**
-   * Cancel an appointment
+   * Cancel an appointment with offline support
    */
   public async cancelAppointment(id: string): Promise<ApiResponse<AppointmentResponse>> {
-    return httpClient.put<AppointmentResponse>(`${API_PATHS.APPOINTMENTS.BASE}/${id}/cancel`, {});
+    return httpClient.putWithOfflineSupport<AppointmentResponse>(`${API_PATHS.APPOINTMENTS.BASE}/${id}/cancel`, {});
   }
 
   /**
@@ -105,8 +105,8 @@ class AppointmentService {
     };
 
     // Map status from backend to frontend format
-    const statusMap: { [key: string]: 'waiting' | 'ongoing' | 'completed' | 'cancelled' } = {
-      'scheduled': 'waiting',
+    const statusMap: { [key: string]: 'scheduled' | 'waiting' | 'ongoing' | 'completed' | 'cancelled' } = {
+      'scheduled': 'scheduled',
       'waiting': 'waiting',
       'in_progress': 'ongoing',
       'completed': 'completed',

@@ -29,7 +29,7 @@ export interface ProfileUpdateRequest {
 }
 
 export interface CompleteProfileRequest {
-  email: string;
+  email?: string;
   date_of_birth: string | null;
   gender: string;
   address: string;
@@ -103,7 +103,6 @@ export class AuthService {
   transformUserResponse(userResponse: UserResponse): User {
     // Check if profile is complete by verifying all required fields are present
     const isProfileComplete = !!(
-      userResponse.email && 
       userResponse.gender && 
       userResponse.date_of_birth && 
       userResponse.address && 

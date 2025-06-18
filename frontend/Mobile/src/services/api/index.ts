@@ -2,6 +2,8 @@ import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } f
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { API_URL, AUTH_CONFIG, REQUEST_CONFIG } from '../../config/env';
+import { connectivityService } from '../connectivity/connectivityServices';
+import { syncService } from '../storage/syncService';
 
 // Types
 export interface ApiResponse<T = any> {
@@ -205,6 +207,129 @@ class HttpClient {
       return this.formatResponse<T>(response);
     } catch (error) {
       throw this.formatError(error as AxiosError);
+    }
+  }
+  
+  // Offline support methods
+  public async postWithOfflineSupport<T = any>(
+    url: string,
+    data?: any,
+    config?: AxiosRequestConfig
+  ): Promise<ApiResponse<T>> {
+    try {
+      // Try online request first
+      if (connectivityService.isNetworkConnected()) {
+        const response = await this.post<T>(url, data, config);
+        return response;
+      } else {
+        // No connection, queue for later
+        const actionId = await syncService.queueAction(url, 'POST', data);
+        
+        // Return mock response
+        return {
+          data: { id: actionId, ...data } as unknown as T,
+          status: 202, // Accepted
+          isSuccess: true,
+          message: 'Request queued for processing when online',
+        };
+      }
+    } catch (error) {
+      // If error is not connectivity-related, throw it
+      if (connectivityService.isNetworkConnected()) {
+        throw this.formatError(error as AxiosError);
+      }
+      
+      // Otherwise queue for later
+      const actionId = await syncService.queueAction(url, 'POST', data);
+      
+      // Return mock response
+      return {
+        data: { id: actionId, ...data } as unknown as T,
+        status: 202, // Accepted
+        isSuccess: true,
+        message: 'Request queued for processing when online',
+      };
+    }
+  }
+
+  public async putWithOfflineSupport<T = any>(
+    url: string,
+    data?: any,
+    config?: AxiosRequestConfig
+  ): Promise<ApiResponse<T>> {
+    try {
+      // Try online request first
+      if (connectivityService.isNetworkConnected()) {
+        const response = await this.put<T>(url, data, config);
+        return response;
+      } else {
+        // No connection, queue for later
+        const actionId = await syncService.queueAction(url, 'PUT', data);
+        
+        // Return mock response
+        return {
+          data: { id: actionId, ...data } as unknown as T,
+          status: 202, // Accepted
+          isSuccess: true,
+          message: 'Request queued for processing when online',
+        };
+      }
+    } catch (error) {
+      // If error is not connectivity-related, throw it
+      if (connectivityService.isNetworkConnected()) {
+        throw this.formatError(error as AxiosError);
+      }
+      
+      // Otherwise queue for later
+      const actionId = await syncService.queueAction(url, 'PUT', data);
+      
+      // Return mock response
+      return {
+        data: { id: actionId, ...data } as unknown as T,
+        status: 202, // Accepted
+        isSuccess: true,
+        message: 'Request queued for processing when online',
+      };
+    }
+  }
+
+  public async deleteWithOfflineSupport<T = any>(
+    url: string,
+    config?: AxiosRequestConfig
+  ): Promise<ApiResponse<T>> {
+    try {
+      // Try online request first
+      if (connectivityService.isNetworkConnected()) {
+        const response = await this.delete<T>(url, config);
+        return response;
+      } else {
+        // No connection, queue for later
+        const actionId = await syncService.queueAction(url, 'DELETE', null);
+        
+        // Return mock response
+        return {
+          data: { id: actionId } as unknown as T,
+          status: 202, // Accepted
+          isSuccess: true,
+          message: 'Delete request queued for processing when online',
+        };
+      }
+    } catch (error) {
+      // If error is not connectivity-related, throw it
+      if (connectivityService.isNetworkConnected()) {
+        throw this.formatError(error as AxiosError);
+      }
+      
+      // Otherwise queue for later
+      const actionId = await syncService.queueAction(url, 'DELETE', null);
+      
+      // Return mock response
+      return {
+        data: { id: actionId } as unknown as T,
+        status: 202, // Accepted
+        isSuccess: true,
+        message: 'Delete request queued for processing when online',
+      };
     }
   }
   
