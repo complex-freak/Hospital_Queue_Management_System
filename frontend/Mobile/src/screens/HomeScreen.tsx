@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -8,6 +8,7 @@ import {
     Image,
     TouchableOpacity,
     StatusBar,
+    Alert
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,6 +18,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SIZES } from '../constants/theme';
 import { RootStackParamList } from '../navigation';
 import { useAuth } from '../context/AuthContext';
+import { useQueue } from '../context/QueueContext';
+import { useNotifications } from '../context/NotificationsContext';
+import { Appointment } from '../types';
+import { useAuthenticatedAPI } from '../hooks/useAuthenticatedAPI';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -24,6 +29,68 @@ const HomeScreen: React.FC = () => {
     const { t, i18n } = useTranslation();
     const navigation = useNavigation<HomeScreenNavigationProp>();
     const { state: authState } = useAuth();
+    const { getAppointments } = useQueue();
+    const { state: notificationState } = useNotifications();
+    const { makeAuthenticatedRequest, isAuthenticated } = useAuthenticatedAPI();
+    
+    const [stats, setStats] = useState({
+        appointments: '0',
+        queuePosition: '0',
+        notifications: '0',
+    });
+    const [loading, setLoading] = useState(true);
+
+    // Load real data on component mount
+    useEffect(() => {
+        loadData();
+    }, [isAuthenticated]);
+
+    const loadData = async () => {
+        try {
+            setLoading(true);
+            
+            if (!isAuthenticated) {
+                console.log('Not authenticated, cannot load home data');
+                setLoading(false);
+                return;
+            }
+            
+            // Get appointments from API with authentication
+            await makeAuthenticatedRequest(async () => {
+                const appointments = await getAppointments();
+                
+                // Calculate stats
+                const activeAppointments = appointments.filter(
+                    a => a.status === 'waiting' || a.status === 'ongoing' || a.status === 'scheduled'
+                );
+                
+                // Find the current queue position
+                const waitingAppointment = appointments.find(a => a.status === 'waiting');
+                const queuePosition = waitingAppointment ? waitingAppointment.currentPosition.toString() : '0';
+                
+                // Count unread notifications
+                const unreadNotifications = notificationState.notifications.filter(n => !n.read).length;
+                
+                // Update stats
+                setStats({
+                    appointments: activeAppointments.length.toString(),
+                    queuePosition: queuePosition,
+                    notifications: unreadNotifications.toString(),
+                });
+            }, () => {
+                // Handle authentication error
+                Alert.alert(
+                    t('authError'),
+                    t('pleaseLogInAgain'),
+                    [{ text: t('ok') }]
+                );
+            });
+        } catch (error) {
+            console.error('Error loading home data:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     // Define menu options for the home screen
     const menuOptions = [
@@ -80,25 +147,25 @@ const HomeScreen: React.FC = () => {
     ];
 
     // Stats for dashboard
-    const stats = [
+    const statsItems = [
         {
             id: 'appointments',
             title: t('appointments'),
-            value: '2',
+            value: stats.appointments,
             icon: 'calendar',
             color: COLORS.primary,
         },
         {
             id: 'queue',
             title: t('queuePosition'),
-            value: '4',
+            value: stats.queuePosition === '0' ? '-' : stats.queuePosition,
             icon: 'time',
             color: COLORS.warning,
         },
         {
             id: 'notifications',
             title: t('notifications'),
-            value: '3',
+            value: stats.notifications,
             icon: 'notifications',
             color: COLORS.info,
         },
@@ -129,7 +196,7 @@ const HomeScreen: React.FC = () => {
             <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
                 {/* Stats Dashboard */}
                 <View style={styles.statsContainer}>
-                    {stats.map((stat) => (
+                    {statsItems.map((stat) => (
                         <View key={stat.id} style={styles.statCard}>
                             <View style={[styles.statIconContainer, { backgroundColor: stat.color + '15' }]}>
                                 <Ionicons name={stat.icon as any} size={22} color={stat.color} />
@@ -167,22 +234,7 @@ const HomeScreen: React.FC = () => {
                     ))}
                 </View>
 
-                {/* Recent Activity */}
-                <View style={styles.sectionContainer}>
-                    <Text style={styles.sectionTitle}>{t('recentActivity')}</Text>
-                    <View style={styles.activityCard}>
-                        <View style={styles.activityHeader}>
-                            <Ionicons name="calendar" size={20} color={COLORS.primary} />
-                            <Text style={styles.activityDate}>{t('today')}, 10:30 AM</Text>
-                        </View>
-                        <Text style={styles.activityTitle}>{t('appointmentWithDr')}</Text>
-                        <Text style={styles.activityDescription}>{t('generalConsultation')}</Text>
-                        <View style={styles.activityStatus}>
-                            <View style={[styles.statusIndicator, { backgroundColor: COLORS.success }]}></View>
-                            <Text style={styles.statusText}>{t('completed')}</Text>
-                        </View>
-                    </View>
-                </View>
+                {/* We'll remove the static Recent Activity section since we're using real data */}
             </ScrollView>
         </SafeAreaView>
     );
@@ -307,54 +359,6 @@ const styles = StyleSheet.create({
     serviceDescription: {
         ...FONTS.body5,
         color: COLORS.gray,
-    },
-    activityCard: {
-        backgroundColor: COLORS.white,
-        borderRadius: SIZES.radius,
-        padding: SIZES.padding,
-        shadowColor: COLORS.black,
-        shadowOffset: {
-            width: 0,
-            height: 2,
-        },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
-    },
-    activityHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: SIZES.base,
-    },
-    activityDate: {
-        ...FONTS.body5,
-        color: COLORS.gray,
-        marginLeft: 8,
-    },
-    activityTitle: {
-        ...FONTS.h4,
-        color: COLORS.black,
-        marginBottom: 4,
-    },
-    activityDescription: {
-        ...FONTS.body5,
-        color: COLORS.gray,
-        marginBottom: SIZES.base,
-    },
-    activityStatus: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: SIZES.base,
-    },
-    statusIndicator: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        marginRight: 6,
-    },
-    statusText: {
-        ...FONTS.body5,
-        color: COLORS.success,
     },
 });
 

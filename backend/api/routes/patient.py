@@ -482,6 +482,48 @@ async def mark_notification_read(
     return {"success": True}
 
 
+@router.delete("/notifications/{notification_id}")
+async def delete_notification(
+    notification_id: UUID,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a specific notification"""
+    result = await db.execute(
+        select(Notification)
+        .where(
+            Notification.id == notification_id,
+            Notification.patient_id == current_patient.id
+        )
+    )
+    notification = result.scalar_one_or_none()
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    await db.delete(notification)
+    await db.commit()
+    return {"success": True}
+
+
+@router.delete("/notifications")
+async def delete_all_notifications(
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete all notifications for the current patient"""
+    result = await db.execute(
+        select(Notification)
+        .where(Notification.patient_id == current_patient.id)
+    )
+    notifications = result.scalars().all()
+    
+    for notification in notifications:
+        await db.delete(notification)
+    
+    await db.commit()
+    return {"success": True}
+
+
 @router.post("/device-token")
 async def register_device_token(
     token_data: DeviceTokenSchema,

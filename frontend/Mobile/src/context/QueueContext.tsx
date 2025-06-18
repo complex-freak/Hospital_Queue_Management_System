@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Appointment, ConditionType, Gender, QueueState } from '../types';
 import { useAuth } from './AuthContext';
 import { format, addDays } from 'date-fns';
+import { appointmentService } from '../services';
 
 // Initial state
 const initialState: QueueState = {
@@ -111,12 +112,13 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     }, [authState.user]);
 
-    // Create appointment function - in real app, this would make an API call
+    // Create appointment function that can be called with custom authentication handler
     const createAppointment = async (
         gender: Gender,
         appointmentDate: string,
         conditionType: ConditionType,
-        addToQueue: boolean = true
+        addToQueue: boolean = true,
+        onAuthError?: () => void
     ) => {
         try {
             if (!authState.user) {
@@ -125,72 +127,62 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             dispatch({ type: 'APPOINTMENT_REQUEST' });
 
-            // Simulate API call delay
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // Calculate queue number and position only if adding to queue
-            let queuePosition = 0;
-            let estimatedTime = 0;
-            let queueNumber = 0;
-            let status: 'waiting' | 'scheduled' = 'scheduled';
-            
-            if (addToQueue) {
-                // Calculate based on condition type
-                switch (conditionType) {
-                    case 'emergency':
-                        queuePosition = 1;
-                        break;
-                    case 'elderly':
-                        queuePosition = 3;
-                        break;
-                    case 'child':
-                        queuePosition = 5;
-                        break;
-                    case 'normal':
-                        queuePosition = 8;
-                        break;
-                }
-                
-                // Estimated time based on position (5 mins per position)
-                estimatedTime = queuePosition * 5;
-                queueNumber = Math.floor(Math.random() * 1000) + 1; // Random queue number for demo
-                status = 'waiting';
-            }
-
-            // Create appointment object
-            const appointment: Appointment = {
-                id: Math.random().toString(36).substring(2, 15),
-                patientName: authState.user.fullName,
-                gender,
-                dateOfBirth: appointmentDate,
-                phoneNumber: authState.user.phoneNumber,
-                conditionType,
-                queueNumber,
-                currentPosition: queuePosition,
-                estimatedTime,
-                doctorName: 'Dr. Hamisi Mwangi', // Mock doctor name
-                status,
-                createdAt: new Date().toISOString(),
+            // Map condition type to urgency for API
+            const urgencyMap: Record<ConditionType, string> = {
+                'emergency': 'emergency',
+                'elderly': 'high',
+                'child': 'low',
+                'normal': 'normal'
             };
 
-            // For immediate appointments, save to active appointment in AsyncStorage
-            if (addToQueue) {
-                await AsyncStorage.setItem('appointment', JSON.stringify(appointment));
-            }
-            
-            // Save to appointments list in AsyncStorage
-            const storedAppointments = await AsyncStorage.getItem('appointments');
-            let appointments: Appointment[] = storedAppointments ? JSON.parse(storedAppointments) : [];
-            appointments.push(appointment);
-            await AsyncStorage.setItem('appointments', JSON.stringify(appointments));
+            try {
+                // Call the actual API
+                const response = await appointmentService.createAppointment({
+                    urgency: urgencyMap[conditionType],
+                    appointment_date: addToQueue ? undefined : appointmentDate,
+                    notes: `Patient Gender: ${gender}`
+                });
 
-            // Only update state for immediate appointments
-            if (addToQueue) {
-                dispatch({ type: 'APPOINTMENT_SUCCESS', payload: appointment });
-            } else {
-                // Clear loading state for future appointments
-                dispatch({ type: 'APPOINTMENT_REQUEST' });
-                dispatch({ type: 'APPOINTMENT_FAILURE', payload: '' });
+                if (!response.isSuccess) {
+                    // Check if this is an auth error
+                    if (response.status === 401) {
+                        console.error('Authentication error during appointment creation');
+                        if (onAuthError) {
+                            onAuthError();
+                            return;
+                        }
+                        throw new Error('Authentication failed');
+                    }
+                    
+                    throw new Error(response.message || 'Failed to create appointment');
+                }
+
+                // Transform the API response to frontend format
+                const appointment = appointmentService.transformAppointmentData(response.data);
+
+                // For immediate appointments, save to active appointment in AsyncStorage
+                if (addToQueue) {
+                    await AsyncStorage.setItem('appointment', JSON.stringify(appointment));
+                    dispatch({ type: 'APPOINTMENT_SUCCESS', payload: appointment });
+                } else {
+                    // Clear loading state for future appointments
+                    dispatch({ type: 'APPOINTMENT_REQUEST' });
+                    dispatch({ type: 'APPOINTMENT_FAILURE', payload: '' });
+                }
+            } catch (error) {
+                if (error instanceof Error && 
+                    (error.message.includes('session has expired') || 
+                     error.message.includes('validate credentials') ||
+                     error.message.includes('Authentication failed'))) {
+                    
+                    console.error('Authentication error during appointment creation:', error);
+                    if (onAuthError) {
+                        onAuthError();
+                        return;
+                    }
+                }
+                
+                throw error;
             }
         } catch (error) {
             dispatch({
@@ -200,34 +192,34 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     };
 
-    // Refresh queue status - in real app, this would fetch updated queue data from API
+    // Refresh queue status to get updated queue information from API
     const refreshQueueStatus = async () => {
         try {
             if (!state.appointment) {
                 throw new Error('No active appointment found');
             }
 
-            // Simulate API call delay
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // Simulate queue position update
-            // In a real app, fetch the current position from the server
-            const currentPosition = Math.max(1, state.appointment.currentPosition - 1);
-            const estimatedTime = currentPosition * 5;
-
-            dispatch({
-                type: 'UPDATE_QUEUE_POSITION',
-                payload: { currentPosition, estimatedTime },
-            });
-
-            // Update AsyncStorage as well
-            if (state.appointment) {
-                const updatedAppointment = {
-                    ...state.appointment,
-                    currentPosition,
-                    estimatedTime,
-                };
-                await AsyncStorage.setItem('appointment', JSON.stringify(updatedAppointment));
+            // Call the queue status API for the current appointment
+            const queueResponse = await appointmentService.getQueueStatus(state.appointment.id);
+            
+            if (queueResponse.isSuccess && queueResponse.data) {
+                const currentPosition = queueResponse.data.queue_position;
+                const estimatedTime = queueResponse.data.estimated_wait_time || 0;
+                
+                dispatch({
+                    type: 'UPDATE_QUEUE_POSITION',
+                    payload: { currentPosition, estimatedTime },
+                });
+                
+                // Update AsyncStorage as well
+                if (state.appointment) {
+                    const updatedAppointment = {
+                        ...state.appointment,
+                        currentPosition,
+                        estimatedTime,
+                    };
+                    await AsyncStorage.setItem('appointment', JSON.stringify(updatedAppointment));
+                }
             }
         } catch (error) {
             console.error('Error refreshing queue status:', error);
@@ -256,72 +248,22 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 throw new Error('User must be logged in to get appointments');
             }
             
-            // Try to get appointments from AsyncStorage first
-            const storedAppointments = await AsyncStorage.getItem('appointments');
-            let appointments: Appointment[] = storedAppointments ? JSON.parse(storedAppointments) : [];
+            // Call the appointment service API to get real appointments
+            const response = await appointmentService.getAppointments();
             
-            // Add current active appointment if exists and not already in the list
-            if (state.appointment && !appointments.some(a => a.id === state.appointment?.id)) {
-                appointments.push(state.appointment);
+            if (response.isSuccess && response.data) {
+                // Transform API data to frontend format
+                const appointments = response.data.map(apiAppointment => 
+                    appointmentService.transformAppointmentData(apiAppointment)
+                );
+                
+                // Sort by creation date (newest first)
+                appointments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                
+                return appointments;
             }
             
-            // If no appointments yet, add some mock ones
-            if (appointments.length === 0) {
-                // Add some mock appointments with different statuses
-                appointments.push({
-                    id: 'appt-001',
-                    patientName: authState.user.fullName,
-                    gender: 'male',
-                    dateOfBirth: '1990-01-15',
-                    phoneNumber: authState.user.phoneNumber,
-                    conditionType: 'normal',
-                    queueNumber: 124,
-                    currentPosition: 0,
-                    estimatedTime: 0,
-                    doctorName: 'Dr. Sarah Johnson',
-                    status: 'completed',
-                    createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
-                });
-                
-                appointments.push({
-                    id: 'appt-002',
-                    patientName: authState.user.fullName,
-                    gender: 'male',
-                    dateOfBirth: '1990-01-15',
-                    phoneNumber: authState.user.phoneNumber,
-                    conditionType: 'elderly',
-                    queueNumber: 86,
-                    currentPosition: 0,
-                    estimatedTime: 0,
-                    doctorName: 'Dr. Michael Kariuki',
-                    status: 'cancelled',
-                    createdAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(), // 14 days ago
-                });
-                
-                // Add a future appointment
-                appointments.push({
-                    id: 'appt-003',
-                    patientName: authState.user.fullName,
-                    gender: 'male',
-                    dateOfBirth: format(addDays(new Date(), 5), 'dd/MM/yyyy'),
-                    phoneNumber: authState.user.phoneNumber,
-                    conditionType: 'normal',
-                    queueNumber: 0,
-                    currentPosition: 0,
-                    estimatedTime: 0,
-                    doctorName: 'Dr. Jane Smith',
-                    status: 'scheduled',
-                    createdAt: new Date().toISOString(),
-                });
-                
-                // Save mock appointments to storage
-                await AsyncStorage.setItem('appointments', JSON.stringify(appointments));
-            }
-            
-            // Sort by creation date (newest first)
-            appointments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            
-            return appointments;
+            return [];
         } catch (error) {
             console.error('Error getting appointments:', error);
             return [];
@@ -335,14 +277,12 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 throw new Error('User must be logged in to cancel an appointment');
             }
             
-            // In a real app, this would call an API endpoint
-            // For now, we'll just log it
-            console.log(`Cancelling appointment ${appointmentId}`);
+            // Call the real appointment service to cancel
+            await appointmentService.cancelAppointment(appointmentId);
             
-            // Actual implementation would be something like:
-            // await appointmentService.cancelAppointment(appointmentId);
         } catch (error) {
             console.error('Error cancelling appointment:', error);
+            throw error;
         }
     };
 

@@ -10,6 +10,7 @@ import {
     ActivityIndicator,
     StatusBar,
     ScrollView,
+    Alert,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,6 +22,7 @@ import { COLORS, FONTS, SIZES } from '../constants/theme';
 import { RootStackParamList } from '../navigation';
 import { useQueue } from '../context/QueueContext';
 import { Appointment } from '../types';
+import { useAuthenticatedAPI } from '../hooks/useAuthenticatedAPI';
 
 type AppointmentsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -28,6 +30,7 @@ const AppointmentsScreen: React.FC = () => {
     const { t } = useTranslation();
     const navigation = useNavigation<AppointmentsScreenNavigationProp>();
     const { getAppointments, cancelAppointment } = useQueue();
+    const { isAuthenticated, makeAuthenticatedRequest } = useAuthenticatedAPI();
 
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [loading, setLoading] = useState(true);
@@ -45,8 +48,24 @@ const AppointmentsScreen: React.FC = () => {
     const fetchAppointments = async () => {
         try {
             setLoading(true);
-            const fetchedAppointments = await getAppointments();
-            setAppointments(fetchedAppointments);
+            
+            if (!isAuthenticated) {
+                console.log('Not authenticated, cannot fetch appointments');
+                setLoading(false);
+                return;
+            }
+            
+            await makeAuthenticatedRequest(async () => {
+                const fetchedAppointments = await getAppointments();
+                setAppointments(fetchedAppointments);
+            }, () => {
+                // Handle authentication error
+                Alert.alert(
+                    t('authError'),
+                    t('pleaseLogInAgain'),
+                    [{ text: t('ok') }]
+                );
+            });
         } catch (error) {
             console.error('Error fetching appointments:', error);
         } finally {
@@ -73,20 +92,34 @@ const AppointmentsScreen: React.FC = () => {
     // Handle appointment cancellation
     const handleCancelAppointment = (id: string) => {
         // Show confirmation dialog
-        // Implementation will depend on your UI library or native Alert component
-        cancelAppointment(id)
-            .then(() => {
-                // Update the local list without refetching
-                const updatedAppointments = appointments.map(appointment => 
-                    appointment.id === id 
-                        ? { ...appointment, status: 'cancelled' as const } 
-                        : appointment
-                );
-                setAppointments(updatedAppointments);
-            })
-            .catch(error => {
-                console.error('Error cancelling appointment:', error);
-            });
+        Alert.alert(
+            t('cancelAppointmentTitle'),
+            t('cancelAppointmentMessage'),
+            [
+                {
+                    text: t('no'),
+                    style: 'cancel'
+                },
+                {
+                    text: t('yes'),
+                    onPress: async () => {
+                        try {
+                            await cancelAppointment(id);
+                            // Update the local list without refetching
+                            const updatedAppointments = appointments.map(appointment => 
+                                appointment.id === id 
+                                    ? { ...appointment, status: 'cancelled' as const } 
+                                    : appointment
+                            );
+                            setAppointments(updatedAppointments);
+                        } catch (error) {
+                            console.error('Error cancelling appointment:', error);
+                            Alert.alert(t('error'), t('cancelAppointmentError'));
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     // Get filtered appointments

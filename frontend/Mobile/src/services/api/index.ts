@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { Platform, DeviceEventEmitter } from 'react-native';
 import { API_URL, AUTH_CONFIG, REQUEST_CONFIG } from '../../config/env';
 import { connectivityService } from '../connectivity/connectivityServices';
 import { syncService } from '../storage/syncService';
@@ -88,6 +88,9 @@ class HttpClient {
 
         // Handle 401 Unauthorized errors (token expired)
         if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+          // Emit token invalid event for React Native
+          DeviceEventEmitter.emit('auth_token_invalid');
+          
           if (this.isRefreshing) {
             // If already refreshing, wait for new token
             return new Promise((resolve) => {

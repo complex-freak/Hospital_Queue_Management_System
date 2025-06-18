@@ -179,11 +179,8 @@ const OnboardingScreen: React.FC = () => {
                         emergencyContactRelationship,
                     });
                     
-                    // Navigate to main app
-                    navigation.reset({
-                        index: 0,
-                        routes: [{ name: 'MainTabs' }],
-                    });
+                    // No need to explicitly navigate - the auth state change will trigger
+                    // a re-render of the navigation tree which will show MainTabs automatically
                 } else {
                     Alert.alert(
                         t('Error'),

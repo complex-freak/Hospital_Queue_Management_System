@@ -38,6 +38,20 @@ class NotificationService {
   }
 
   /**
+   * Delete a specific notification
+   */
+  public async deleteNotification(id: string): Promise<ApiResponse<any>> {
+    return httpClient.delete<any>(`${API_PATHS.NOTIFICATIONS.BASE}/${id}`);
+  }
+
+  /**
+   * Delete all notifications for the current user
+   */
+  public async deleteAllNotifications(): Promise<ApiResponse<any>> {
+    return httpClient.delete<any>(`${API_PATHS.NOTIFICATIONS.BASE}`);
+  }
+
+  /**
    * Register device token for push notifications
    */
   public async registerDeviceToken(data: DeviceTokenRequest): Promise<ApiResponse<any>> {
