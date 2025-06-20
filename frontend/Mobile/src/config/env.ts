@@ -27,6 +27,11 @@ export const STORAGE_KEYS = {
   NOTIFICATIONS: 'notifications',
   SETTINGS: 'settings',
   OFFLINE_QUEUE: 'offline_queue', 
+  QUEUE_STATUS: 'queue_status',
+  SYNC_INFO: 'sync_info',
+  CONNECTION_INFO: 'connection_info',
+  CACHE_VERSION: 'cache_version',
+  LAST_SYNC_TIMESTAMP: 'last_sync_timestamp',
 };
 
 // Request Configuration

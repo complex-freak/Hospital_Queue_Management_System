@@ -1,85 +1,143 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
-import { connectivityService } from '../services';
-import { COLORS, FONTS } from '../constants/theme';
-import { useTranslation } from 'react-i18next';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { connectivityService } from '../services/connectivity/connectivityServices';
+import { syncService } from '../services/storage/syncService';
+import theme from '../constants/theme';
+import { SyncInfo, ConnectionInfo } from '../types';
+import { httpClient } from '../services/api';
 
-const NetworkStatusBar: React.FC = () => {
-  const { t } = useTranslation();
-  const [isConnected, setIsConnected] = useState(true);
-  const [isVisible, setIsVisible] = useState(false);
-  const fadeAnim = useState(new Animated.Value(0))[0];
+interface NetworkStatusBarProps {
+  onManualSync?: () => void;
+}
 
+const NetworkStatusBar: React.FC<NetworkStatusBarProps> = ({ onManualSync }) => {
+  const [isConnected, setIsConnected] = useState<boolean>(true);
+  const [pendingActions, setPendingActions] = useState<number>(0);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  
   useEffect(() => {
     // Subscribe to connectivity changes
     const unsubscribe = connectivityService.addListener((connected) => {
       setIsConnected(connected);
       
-      // Show bar when disconnected, hide when reconnected (with delay)
-      if (!connected) {
-        setIsVisible(true);
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }).start();
-      } else {
-        // When we reconnect, fade out and then hide
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }).start(() => {
-          setIsVisible(false);
-        });
+      // If just came back online, check for pending actions
+      if (connected) {
+        checkPendingActions();
       }
     });
-
-    // Cleanup
-    return () => unsubscribe();
-  }, [fadeAnim]);
-
-  if (!isVisible) {
+    
+    // Initialize with current state
+    setIsConnected(connectivityService.isNetworkConnected());
+    checkPendingActions();
+    
+    // Set up interval to check pending actions
+    const interval = setInterval(checkPendingActions, 10000); // Every 10 seconds
+    
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
+  }, []);
+  
+  const checkPendingActions = async () => {
+    try {
+      const count = await syncService.getPendingActionsCount();
+      setPendingActions(count);
+    } catch (error) {
+      console.error('Error checking pending actions:', error);
+    }
+  };
+  
+  const handleManualSync = async () => {
+    if (!isConnected || isSyncing || pendingActions === 0) return;
+    
+    try {
+      setIsSyncing(true);
+      
+      // Call the provided sync handler or use default
+      if (onManualSync) {
+        onManualSync();
+      } else {
+        await syncService.processPendingActions(httpClient);
+      }
+      
+      // Refresh pending actions count
+      await checkPendingActions();
+    } catch (error) {
+      console.error('Error during manual sync:', error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+  
+  // Don't show anything if connected and no pending actions
+  if (isConnected && pendingActions === 0) {
     return null;
   }
-
+  
   return (
-    <Animated.View
-      style={[
-        styles.container,
-        isConnected ? styles.onlineContainer : styles.offlineContainer,
-        { opacity: fadeAnim }
-      ]}
-    >
+    <View style={[
+      styles.container, 
+      isConnected ? styles.onlineContainer : styles.offlineContainer
+    ]}>
       <Text style={styles.statusText}>
         {isConnected 
-          ? t('Connected to network')
-          : t('No internet connection - Working offline')}
+          ? `${pendingActions} item(s) waiting to sync` 
+          : 'You are offline. Changes will sync when back online.'}
       </Text>
-    </Animated.View>
+      
+      {isConnected && pendingActions > 0 && (
+        <TouchableOpacity 
+          style={styles.syncButton} 
+          onPress={handleManualSync}
+          disabled={isSyncing}
+        >
+          {isSyncing ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.syncButtonText}>Sync Now</Text>
+          )}
+        </TouchableOpacity>
+      )}
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    height: 30,
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    justifyContent: 'center',
+    padding: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     zIndex: 999,
   },
   offlineContainer: {
-    backgroundColor: COLORS.error,
+    backgroundColor: theme.COLORS.error,
   },
   onlineContainer: {
-    backgroundColor: COLORS.success,
+    backgroundColor: theme.COLORS.warning,
   },
   statusText: {
-    ...FONTS.body5,
-    color: COLORS.white,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+  },
+  syncButton: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  syncButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

@@ -33,6 +33,14 @@ export interface Appointment {
     createdAt: string;
     reasonForVisit?: string;
     additionalInformation?: string;
+    // Properties for offline sync
+    _isOfflineCreated?: boolean;
+    _locallyModified?: boolean;
+    _lastModified?: number;
+    _patientId?: string;
+    _version?: number;
+    _lastSynced?: number;
+    appointmentDate?: string;
 }
 
 export interface Notification {
@@ -41,6 +49,12 @@ export interface Notification {
     message: string;
     read: boolean;
     createdAt: string;
+    // Properties for offline sync
+    _isOfflineCreated?: boolean;
+    _locallyModified?: boolean;
+    _lastModified?: number;
+    _version?: number;
+    _lastSynced?: number;
 }
 
 export interface AuthState {
@@ -65,4 +79,17 @@ export interface AppSettings {
     language: string;
     notificationsEnabled: boolean;
     version: string;
+}
+
+// Types for offline sync
+export interface SyncInfo {
+    pendingActions: number;
+    lastSyncTime: number | null;
+    syncInProgress: boolean;
+}
+
+export interface ConnectionInfo {
+    isConnected: boolean;
+    lastChecked: number;
+    connectionType: string | null;
 } 
