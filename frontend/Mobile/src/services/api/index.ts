@@ -94,35 +94,19 @@ class HttpClient {
         // Handle 401 Unauthorized errors (token expired)
         if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
           // Emit token invalid event for React Native
+          console.log('Received 401 Unauthorized, emitting auth_token_invalid event');
+          
+          // Clear the token immediately
+          await this.removeToken();
+          
+          // Emit event to trigger logout in AuthContext
           DeviceEventEmitter.emit('auth_token_invalid');
           
-          if (this.isRefreshing) {
-            // If already refreshing, wait for new token
-            return new Promise((resolve) => {
-              this.refreshSubscribers.push((token: string) => {
-                if (originalRequest.headers) {
-                  originalRequest.headers['Authorization'] = `Bearer ${token}`;
-                }
-                resolve(this.instance(originalRequest));
-              });
-            });
-          }
-
-          originalRequest._retry = true;
-          this.isRefreshing = true;
-
-          try {
-            // Attempt to refresh token (placeholder for now)
-            // In a real implementation, you would call your refresh token endpoint
-            await AsyncStorage.removeItem(AUTH_CONFIG.ACCESS_TOKEN_KEY);
-            this.isRefreshing = false;
-            this.refreshSubscribers = [];
-            return Promise.reject(error);
-          } catch (refreshError) {
-            this.isRefreshing = false;
-            this.refreshSubscribers = [];
-            return Promise.reject(error);
-          }
+          // No need for token refresh handling since we're logging out
+          this.isRefreshing = false;
+          this.refreshSubscribers = [];
+          
+          return Promise.reject(error);
         }
 
         return Promise.reject(error);

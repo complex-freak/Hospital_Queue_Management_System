@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DeviceEventEmitter } from 'react-native';
 import { User, AuthState } from '../types';
 import { authService } from '../services';
 import { STORAGE_KEYS, AUTH_CONFIG } from '../config/env';
@@ -23,7 +24,8 @@ type AuthAction =
     | { type: 'CLEAR_ERROR' }
     | { type: 'PROFILE_UPDATE_REQUEST' }
     | { type: 'PROFILE_UPDATE_SUCCESS'; payload: User }
-    | { type: 'PROFILE_UPDATE_FAILURE'; payload: string };
+    | { type: 'PROFILE_UPDATE_FAILURE'; payload: string }
+    | { type: 'TOKEN_EXPIRED' };
 
 // Reducer
 function authReducer(state: AuthState, action: AuthAction): AuthState {
@@ -51,6 +53,7 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
                 error: action.payload,
             };
         case 'LOGOUT':
+        case 'TOKEN_EXPIRED':
             return {
                 ...state,
                 user: null,
@@ -131,6 +134,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         loadUser();
     }, []);
+
+    // Listen for token expiration events
+    useEffect(() => {
+        const tokenInvalidSubscription = DeviceEventEmitter.addListener(
+            'auth_token_invalid',
+            handleTokenExpired
+        );
+
+        return () => {
+            tokenInvalidSubscription.remove();
+        };
+    }, []);
+
+    // Handle token expiration
+    const handleTokenExpired = async () => {
+        console.log('Token expired or invalid, logging out user');
+        try {
+            // Remove tokens and user data
+            await AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA);
+            await AsyncStorage.removeItem(AUTH_CONFIG.ACCESS_TOKEN_KEY);
+            await AsyncStorage.removeItem(AUTH_CONFIG.REFRESH_TOKEN_KEY);
+            
+            // Update auth state
+            dispatch({ type: 'TOKEN_EXPIRED' });
+        } catch (error) {
+            console.error('Error handling token expiration:', error);
+            dispatch({ type: 'LOGOUT' });
+        }
+    };
 
     // Login function using the auth service
     const login = async (phoneNumber: string, password: string) => {
@@ -232,6 +264,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
             // Remove tokens and user data
             await AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA);
+            await AsyncStorage.removeItem(AUTH_CONFIG.ACCESS_TOKEN_KEY);
+            await AsyncStorage.removeItem(AUTH_CONFIG.REFRESH_TOKEN_KEY);
             await authService.logout();
             dispatch({ type: 'LOGOUT' });
         } catch (error) {
