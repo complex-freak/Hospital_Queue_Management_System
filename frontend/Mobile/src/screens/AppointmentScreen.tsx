@@ -21,7 +21,7 @@ import { COLORS, FONTS, SIZES } from '../constants/theme';
 import { RootStackParamList } from '../navigation';
 import { useQueue } from '../context/QueueContext';
 import { useAuth } from '../context/AuthContext';
-import { ConditionType } from '../types';
+import { ConditionType, Appointment } from '../types';
 
 import AppInput from '../components/AppInput';
 import AppButton from '../components/AppButton';
@@ -112,7 +112,10 @@ const AppointmentScreen: React.FC = () => {
                     authState.user?.gender || 'other',
                     formatDateString(appointmentDate),
                     conditionType,
-                    isToday
+                    isToday,
+                    undefined, // onAuthError callback
+                    reasonForVisit,
+                    conditionExplanation
                 );
                 
                 // Only show success message if appointment was actually created
@@ -139,6 +142,11 @@ const AppointmentScreen: React.FC = () => {
                 );
             }
         }
+    };
+
+    // Navigate to appointment details
+    const goToAppointmentDetails = (appointment: Appointment) => {
+        navigation.navigate('AppointmentDetails', { appointmentId: appointment.id });
     };
 
     return (

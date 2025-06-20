@@ -77,7 +77,10 @@ interface QueueContextType {
         gender: Gender,
         appointmentDate: string,
         conditionType: ConditionType,
-        addToQueue?: boolean
+        addToQueue?: boolean,
+        onAuthError?: () => void,
+        reasonForVisit?: string,
+        additionalInformation?: string
     ) => Promise<boolean>;
     refreshQueueStatus: () => Promise<void>;
     clearAppointment: () => Promise<void>;
@@ -119,7 +122,9 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         appointmentDate: string,
         conditionType: ConditionType,
         addToQueue: boolean = true,
-        onAuthError?: () => void
+        onAuthError?: () => void,
+        reasonForVisit?: string,
+        additionalInformation?: string
     ): Promise<boolean> => {
         try {
             if (!authState.user) {
@@ -145,7 +150,8 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 const response = await appointmentService.createAppointment({
                     urgency: urgencyMap[conditionType],
                     appointment_date: addToQueue ? undefined : appointmentDate,
-                    notes: `Patient Gender: ${gender}`
+                    reason: reasonForVisit,
+                    notes: additionalInformation || `Patient Gender: ${gender}`
                 });
 
                 if (!response.isSuccess) {

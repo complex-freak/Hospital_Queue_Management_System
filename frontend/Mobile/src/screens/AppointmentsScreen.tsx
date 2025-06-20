@@ -205,8 +205,7 @@ const AppointmentsScreen: React.FC = () => {
 
     // Navigate to appointment details
     const goToAppointmentDetails = (appointment: Appointment) => {
-        // Implementation will depend on your navigation setup
-        // navigation.navigate('AppointmentDetails', { appointmentId: appointment.id });
+        navigation.navigate('AppointmentDetails', { appointmentId: appointment.id });
     };
 
     // Render appointment card

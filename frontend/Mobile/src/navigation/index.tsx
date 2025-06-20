@@ -16,6 +16,7 @@ import HomeScreen from '../screens/HomeScreen';
 import QueueStatusScreen from '../screens/QueueStatusScreen';
 import AppointmentScreen from '../screens/AppointmentScreen';
 import AppointmentsScreen from '../screens/AppointmentsScreen';
+import AppointmentDetailsScreen from '../screens/AppointmentDetailsScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import HelpScreen from '../screens/HelpScreen';
 import SettingsScreen from '../screens/SettingsScreen';
@@ -49,6 +50,7 @@ export type RootStackParamList = {
     Onboarding: undefined;
     Appointment: undefined;
     Appointments: undefined;
+    AppointmentDetails: { appointmentId: string };
     Help: undefined;
     About: undefined;
     ChangePassword: undefined;
@@ -241,6 +243,13 @@ const Navigation = () => {
                         <RootStack.Screen
                             name="Appointments"
                             component={AppointmentsScreen}
+                            options={{
+                                headerShown: false,
+                            }}
+                        />
+                        <RootStack.Screen
+                            name="AppointmentDetails"
+                            component={AppointmentDetailsScreen}
                             options={{
                                 headerShown: false,
                             }}

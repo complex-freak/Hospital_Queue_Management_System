@@ -89,7 +89,15 @@ class AppointmentService {
    * Get appointment details by ID
    */
   public async getAppointmentById(id: string): Promise<ApiResponse<AppointmentResponse>> {
-    return httpClient.get<AppointmentResponse>(`${API_PATHS.APPOINTMENTS.BASE}/${id}`);
+    try {
+      console.log(`Fetching appointment details for ID: ${id}`);
+      const response = await httpClient.get<AppointmentResponse>(`${API_PATHS.APPOINTMENTS.BASE}/${id}`);
+      console.log('Appointment details fetch response:', response.isSuccess ? 'Success' : 'Failed');
+      return response;
+    } catch (error) {
+      console.error(`Error in appointmentService.getAppointmentById: ${error}`);
+      throw error;
+    }
   }
 
   /**
@@ -160,6 +168,8 @@ class AppointmentService {
       doctorName,
       status: statusMap[apiData.status] || 'waiting',
       createdAt: apiData.created_at,
+      reasonForVisit: apiData.reason || undefined,
+      additionalInformation: apiData.notes || undefined,
     };
   }
 }

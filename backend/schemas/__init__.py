@@ -182,6 +182,7 @@ class AppointmentCreate(AppointmentBase):
 class PatientAppointmentCreate(BaseModel):
     appointment_date: Optional[datetime] = None
     notes: Optional[str] = None
+    reason: Optional[str] = None
     urgency: str = "normal"  # default to normal
     
     model_config = {
@@ -220,6 +221,11 @@ class Appointment(AppointmentBase, BaseSchema):
     updated_at: Optional[datetime] = None
     patient: Patient
     doctor: Optional[Doctor] = None
+    
+    # Queue status information (not stored in DB, added dynamically)
+    queue_position: Optional[int] = None
+    estimated_wait_time: Optional[int] = None
+    queue_number: Optional[int] = None
 
 
 # Queue schemas

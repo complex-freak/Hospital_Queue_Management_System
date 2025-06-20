@@ -31,6 +31,8 @@ export interface Appointment {
     doctorName?: string;
     status: 'scheduled' | 'waiting' | 'ongoing' | 'completed' | 'cancelled';
     createdAt: string;
+    reasonForVisit?: string;
+    additionalInformation?: string;
 }
 
 export interface Notification {
