@@ -704,3 +704,69 @@ async def create_appointment(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create appointment: {str(e)}"
         )
+
+
+@router.put("/appointments/{appointment_id}/cancel", response_model=AppointmentSchema)
+async def cancel_appointment(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    appointment_id: str,
+    current_patient: Patient = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db)
+):
+    """Cancel an existing appointment"""
+    try:
+        # Find the appointment
+        result = await db.execute(
+            select(Appointment)
+            .where(
+                Appointment.id == appointment_id,
+                Appointment.patient_id == current_patient.id
+            )
+        )
+        appointment = result.scalar_one_or_none()
+        
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found"
+            )
+        
+        # Check if appointment can be cancelled
+        if appointment.status in ["COMPLETED", "CANCELLED", "NO_SHOW"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot cancel appointment with status: {appointment.status}"
+            )
+        
+        # Update appointment status to CANCELLED
+        appointment.status = "CANCELLED"
+        appointment.updated_at = datetime.now()
+        
+        await db.commit()
+        await db.refresh(appointment)
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_patient.id,
+            user_type="patient",
+            action="CANCEL_APPOINTMENT",
+            resource="appointment",
+            resource_id=appointment.id,
+            details=f"Appointment cancelled by patient",
+            db=db
+        )
+        
+        return appointment
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logging.error(f"Appointment cancellation failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel appointment: {str(e)}"
+        )
