@@ -23,6 +23,7 @@ import { RootStackParamList } from '../navigation';
 import { settingsService } from '../services';
 import { AppSettings } from '../types';
 import { APP_VERSION } from '../config/env';
+import NotificationPermission from '../components/NotificationPermission';
 
 type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -499,12 +500,24 @@ const SettingsScreen: React.FC = () => {
                             </View>
                             <Switch
                                 value={settings.notificationsEnabled}
-                                onValueChange={updateNotificationSetting}
-                                trackColor={{ false: COLORS.gray, true: COLORS.primary }}
-                                thumbColor={COLORS.white}
+                                onValueChange={(value) => {
+                                    updateNotificationSetting(value);
+                                }}
+                                trackColor={{ false: COLORS.lightGray, true: COLORS.primary }}
+                                thumbColor={settings.notificationsEnabled ? COLORS.white : COLORS.white}
                             />
                         </View>
                     </View>
+
+                    {/* Notification Permission Component */}
+                    <NotificationPermission 
+                        onPermissionChanged={(granted) => {
+                            if (!granted && settings.notificationsEnabled) {
+                                // If permissions were denied but setting is enabled, update setting
+                                updateNotificationSetting(false);
+                            }
+                        }}
+                    />
 
                     {/* Security Section */}
                     <View style={styles.sectionCard}>

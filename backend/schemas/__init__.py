@@ -394,6 +394,17 @@ class DeviceToken(BaseSchema):
 class DeviceTokenSchema(BaseModel):
     token: str
     device_type: str = Field(..., pattern=r'^(ios|android|web)$')
+    
+    # Make these fields optional to work with frontend
+    id: Optional[UUID] = None
+    patient_id: Optional[UUID] = None
+    is_active: Optional[bool] = None
+    created_at: Optional[datetime] = None
+    
+    model_config = {
+        "from_attributes": True,
+        "extra": "ignore"
+    }
 
 
 # Settings schemas

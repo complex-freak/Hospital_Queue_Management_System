@@ -55,7 +55,24 @@ class NotificationService {
    * Register device token for push notifications
    */
   public async registerDeviceToken(data: DeviceTokenRequest): Promise<ApiResponse<any>> {
-    return httpClient.post<any>(API_PATHS.NOTIFICATIONS.DEVICE_TOKEN, data);
+    console.log('🚀 Calling registerDeviceToken API with data:', JSON.stringify(data, null, 2));
+    
+    // Make sure device_type is formatted correctly
+    if (data.device_type !== 'ios' && data.device_type !== 'android' && data.device_type !== 'web') {
+      console.warn(`⚠️ Invalid device_type provided: ${data.device_type}. Defaulting to 'android'.`);
+      data.device_type = 'android';
+    }
+    
+    const response = await httpClient.post<any>(API_PATHS.NOTIFICATIONS.DEVICE_TOKEN, data);
+    
+    // Log the API response for debugging
+    if (!response.isSuccess) {
+      console.error('❌ Failed to register device token:', JSON.stringify(response, null, 2));
+    } else {
+      console.log('✅ Device token registered successfully');
+    }
+    
+    return response;
   }
 
   /**

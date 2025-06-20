@@ -216,10 +216,20 @@ class HttpClient {
     config?: AxiosRequestConfig
   ): Promise<ApiResponse<T>> {
     try {
+      console.log(`Making POST request to: ${url}`, data);
       const response = await this.instance.post<T>(url, data, config);
       return this.formatResponse<T>(response);
     } catch (error) {
-      throw this.formatError(error as AxiosError);
+      console.error(`POST request failed for URL: ${url}`, error);
+      const formattedError = this.formatError(error as AxiosError);
+      console.log(`Formatted error: ${JSON.stringify(formattedError)}`);
+      return {
+        data: null as unknown as T,
+        status: formattedError.status,
+        isSuccess: false,
+        message: formattedError.message,
+        errors: formattedError.errors
+      };
     }
   }
 

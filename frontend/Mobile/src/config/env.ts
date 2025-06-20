@@ -32,6 +32,7 @@ export const STORAGE_KEYS = {
   CONNECTION_INFO: 'connection_info',
   CACHE_VERSION: 'cache_version',
   LAST_SYNC_TIMESTAMP: 'last_sync_timestamp',
+  PUSH_NOTIFICATION_TOKEN: 'push_notification_token',
 };
 
 // Request Configuration

@@ -3,16 +3,17 @@ from datetime import timedelta, datetime
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from uuid import UUID
 import logging
+import uuid
 
 from database import get_db
 from models import Patient, Appointment, Notification, DeviceToken, PatientSettings
 from schemas import (
     PatientCreate, PatientUpdate, PatientLogin, Patient as PatientSchema,
     Token, QueueStatusResponse, Appointment as AppointmentSchema,
-    Notification as NotificationSchema, DeviceToken as DeviceTokenSchema,
+    Notification as NotificationSchema, DeviceTokenSchema,
     SettingsSchema, SettingsUpdateSchema, PatientAppointmentCreate
 )
 from services import AuthService, QueueService
@@ -27,6 +28,18 @@ router = APIRouter()
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+# Create a specific input model for device token registration
+class DeviceTokenInput(BaseModel):
+    token: str
+    device_type: str = Field(..., pattern=r'^(ios|android|web)$')
+    
+    model_config = {
+        "extra": "ignore",  # Ignore additional fields in the request
+        "from_attributes": True,
+        "arbitrary_types_allowed": True,
+    }
 
 
 @router.post("/register", response_model=PatientSchema)
@@ -559,36 +572,86 @@ async def delete_all_notifications(
 
 @router.post("/device-token")
 async def register_device_token(
-    token_data: DeviceTokenSchema,
+    request: Request,
     current_patient: Patient = Depends(get_current_patient),
     db: AsyncSession = Depends(get_db)
 ):
     """Register device token for push notifications"""
-    # Check if token already exists
-    result = await db.execute(
-        select(DeviceToken)
-        .where(
-            DeviceToken.token == token_data.token,
-            DeviceToken.patient_id == current_patient.id
+    try:
+        # Get request body as JSON
+        body = await request.json()
+        token = body.get("token")
+        device_type = body.get("device_type")
+        
+        # Validate required fields
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token is required"
+            )
+        
+        if not device_type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Device type is required"
+            )
+            
+        # Validate device type
+        valid_device_types = ["ios", "android", "web"]
+        if device_type not in valid_device_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Device type must be one of {', '.join(valid_device_types)}"
+            )
+        
+        # Check if token already exists
+        result = await db.execute(
+            select(DeviceToken)
+            .where(
+                DeviceToken.token == token,
+                DeviceToken.patient_id == current_patient.id
+            )
         )
-    )
-    existing_token = result.scalar_one_or_none()
-    
-    if existing_token:
-        # Update existing token
-        existing_token.updated_at = datetime.utcnow()
-        await db.commit()
-    else:
-        # Create new token record
-        new_token = DeviceToken(
-            patient_id=current_patient.id,
-            token=token_data.token,
-            device_type=token_data.device_type
+        existing_token = result.scalar_one_or_none()
+        
+        if existing_token:
+            # Update existing token
+            existing_token.updated_at = datetime.utcnow()
+            existing_token.device_type = device_type
+            await db.commit()
+            
+            # Log success
+            logging.info(f"Updated device token for patient {current_patient.id}")
+        else:
+            # Create new token record with all required fields
+            new_token = DeviceToken(
+                id=uuid.uuid4(),  # Auto-generate UUID for id
+                patient_id=current_patient.id,
+                token=token,
+                device_type=device_type,
+                is_active=True,
+                created_at=datetime.utcnow()
+            )
+            db.add(new_token)
+            await db.commit()
+            
+            # Log success
+            logging.info(f"Registered new device token for patient {current_patient.id}")
+        
+        return {"success": True, "message": "Device token registered successfully"}
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log the error
+        logging.error(f"Error registering device token: {str(e)}")
+        await db.rollback()
+        
+        # Return a generic error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to register device token"
         )
-        db.add(new_token)
-        await db.commit()
-    
-    return {"success": True}
 
 
 @router.get("/settings", response_model=SettingsSchema)
