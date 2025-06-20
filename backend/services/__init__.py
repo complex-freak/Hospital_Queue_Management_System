@@ -69,14 +69,16 @@ class AuthService:
         if result.scalar_one_or_none():
             raise ValueError("Username already exists")
         
-        # Create user
+        # Create user with timestamps
         user = User(
             username=user_data.username,
             password_hash=get_password_hash(user_data.password),
             email=user_data.email,
             first_name=user_data.first_name,
             last_name=user_data.last_name,
-            role=user_data.role
+            role=user_data.role,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
         )
         
         db.add(user)

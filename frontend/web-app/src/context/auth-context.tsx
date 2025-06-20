@@ -9,9 +9,11 @@ interface AuthContextType {
   error: string | null;
   login: (username: string, password: string) => Promise<boolean>;
   doctorLogin: (username: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  receptionistLogin: (username: string, password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
   clearError: () => void;
   updateUser: (userData: Partial<User>) => void;
+  getProfile: () => Promise<void>;
 }
 
 // Create the auth context
@@ -36,10 +38,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const checkAuth = async () => {
       setIsLoading(true);
       try {
-        // Get user from localStorage
-        const currentUser = authService.getCurrentUser();
-        if (currentUser) {
-          setUser(currentUser);
+        // Check if token exists
+        const token = localStorage.getItem('token');
+        if (token) {
+          // Get user from localStorage first for immediate UI update
+          const storedUser = authService.getCurrentUser();
+          if (storedUser) {
+            setUser(storedUser);
+          }
+          
+          // Then fetch latest user profile from server
+          await getProfile();
         }
       } catch (err) {
         console.error('Auth check failed:', err);
@@ -53,7 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
   }, []);
   
-  // Login function
+  // Login function for admin/staff
   const login = async (username: string, password: string): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
@@ -99,9 +108,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
   
+  // Receptionist login function
+  const receptionistLogin = async (username: string, password: string): Promise<boolean> => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const result = await authService.receptionistLogin({ username, password });
+      
+      if (result.success && result.data) {
+        setUser(result.data.user || null);
+        return true;
+      } else {
+        setError(result.error || 'Login failed');
+        return false;
+      }
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Get user profile from the server
+  const getProfile = async (): Promise<void> => {
+    try {
+      const result = await authService.getProfile();
+      if (result.success && result.data) {
+        setUser(result.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch user profile:', err);
+    }
+  };
+  
   // Logout function
-  const logout = () => {
-    authService.logout();
+  const logout = async () => {
+    await authService.logout();
     setUser(null);
   };
   
@@ -127,9 +171,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     error,
     login,
     doctorLogin,
+    receptionistLogin,
     logout,
     clearError,
     updateUser,
+    getProfile,
   };
   
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

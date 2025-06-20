@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, desc
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from database import get_db
 from models import Patient, User, Doctor, Appointment, Queue, QueueStatus, UrgencyLevel
@@ -11,12 +11,138 @@ from schemas import (
     Queue as QueueSchema, 
     Patient as PatientSchema,
     Appointment as AppointmentSchema,
-    DoctorDashboardStats
+    DoctorDashboardStats,
+    Token,
+    UserLogin,
+    Doctor as DoctorSchema
 )
-from services import QueueService, NotificationService
+from services import QueueService, NotificationService, AuthService
 from api.dependencies import require_doctor, log_audit_event
+from api.core.security import create_access_token
+from api.core.config import settings
 
 router = APIRouter()
+
+@router.post("/login", response_model=Token)
+async def login_doctor(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    login_data: UserLogin,
+    db: AsyncSession = Depends(get_db)
+):
+    """Doctor login"""
+    user = await AuthService.authenticate_user(
+        db, login_data.username, login_data.password
+    )
+    
+    if not user:
+        # Log failed login attempt
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=None,
+            user_type="user",
+            action="LOGIN_FAILED",
+            resource="user",
+            details=f"Failed login attempt for doctor username {login_data.username}",
+            db=db
+        )
+        
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password"
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is deactivated"
+        )
+    
+    # Verify user is a doctor
+    if user.role != "doctor":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. User is not a doctor."
+        )
+    
+    # Create access token
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        subject=str(user.id), expires_delta=access_token_expires
+    )
+    
+    # Log successful login
+    background_tasks.add_task(
+        log_audit_event,
+        request=request,
+        user_id=user.id,
+        user_type="user",
+        action="LOGIN",
+        resource="user",
+        resource_id=user.id,
+        details="Successful doctor login",
+        db=db
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@router.post("/logout")
+async def logout_doctor(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Doctor logout"""
+    try:
+        # Log successful logout
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="LOGOUT",
+            resource="user",
+            resource_id=current_user.id,
+            details=f"Doctor {current_user.username} logged out",
+            db=db
+        )
+        
+        return {"message": "Logged out successfully"}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Logout failed"
+        )
+
+@router.get("/me", response_model=DoctorSchema)
+async def get_current_doctor(
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get current authenticated doctor profile"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        return doctor
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch doctor profile"
+        )
 
 @router.get("/queue", response_model=List[QueueSchema])
 async def get_doctor_queue(

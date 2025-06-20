@@ -1,6 +1,6 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/use-auth-context';
+import { useAuth } from '@/context/auth-context';
 
 interface RoleBasedRouteProps {
   children: React.ReactNode;
@@ -18,7 +18,7 @@ const RoleBasedRoute: React.FC<RoleBasedRouteProps> = ({ children, allowedRoles 
       if (user.role === 'doctor') {
         return <Navigate to="/doctor/dashboard" replace />;
       }
-      if (user.role === 'receptionist') {
+      if (user.role === 'receptionist' || user.role === 'staff') {
         return <Navigate to="/receptionist/dashboard" replace />;
       }
       if (user.role === 'admin') {

@@ -681,3 +681,33 @@ async def send_notification(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to send notification: {str(e)}"
         )
+
+@router.post("/logout")
+async def logout_admin(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Admin logout"""
+    try:
+        # Log successful logout
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="LOGOUT",
+            resource="user",
+            resource_id=current_user.id,
+            details=f"Admin {current_user.username} logged out",
+            db=db
+        )
+        
+        return {"message": "Logged out successfully"}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Logout failed"
+        )

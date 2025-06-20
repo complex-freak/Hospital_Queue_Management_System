@@ -32,7 +32,7 @@ const formSchema = z.object({
 });
 
 const Login = () => {
-  const { login, doctorLogin, isLoading, error, clearError } = useAuth();
+  const { login, doctorLogin, receptionistLogin, isLoading, error, clearError } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -53,18 +53,25 @@ const Login = () => {
     try {
       let success = false;
       
-      if (selectedRole === 'doctor') {
-        success = await doctorLogin(values.username, values.password);
-        if (success) navigate('/doctor/dashboard');
-      } else {
-        success = await login(values.username, values.password);
-        if (success) {
-          if (selectedRole === 'receptionist') {
-            navigate('/receptionist/dashboard');
-          } else if (selectedRole === 'admin') {
-            navigate('/admin/dashboard');
-          }
-        }
+      switch (selectedRole) {
+        case 'doctor':
+          success = await doctorLogin(values.username, values.password);
+          if (success) navigate('/doctor/dashboard');
+          break;
+          
+        case 'receptionist':
+          success = await receptionistLogin(values.username, values.password);
+          if (success) navigate('/receptionist/dashboard');
+          break;
+          
+        case 'admin':
+          success = await login(values.username, values.password);
+          if (success) navigate('/admin/dashboard');
+          break;
+          
+        default:
+          success = await login(values.username, values.password);
+          if (success) navigate('/admin/dashboard');
       }
       
       if (success) {

@@ -1,137 +1,47 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
-import { toast } from '@/hooks/use-toast';
+import React, { useContext } from 'react';
+import { useAuth as useNewAuth, AuthProvider } from '@/context/auth-context';
 
-interface User {
-  id: string;
-  name: string;
-  role: string;
-}
+// This file serves as a compatibility layer for code that still imports from the old location
 
-interface AuthContextType {
-  user: User | null;
-  isLoading: boolean;
-  isAuthenticated: boolean;
-  login: (username: string, password: string, role?: string) => Promise<void>;
-  logout: () => void;
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  useEffect(() => {
-    // Check if user is already logged in
-    const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
-    
-    if (token && savedUser) {
-      setIsLoading(true);
-      try {
-        const userData = JSON.parse(savedUser);
-        setUser(userData);
-        setIsAuthenticated(true);
-        
-        // Configure axios with the token
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      } catch (error) {
-        console.error('Authentication error:', error);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        axios.defaults.headers.common['Authorization'] = '';
-      } finally {
-        setIsLoading(false);
-      }
-    } else {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const login = async (username: string, password: string, role: string = 'doctor') => {
-    setIsLoading(true);
-    try {
-      // This would be a real API call in production
-      // For now, we'll simulate a successful login if credentials match
-      let isValidCredentials = false;
-      let userData: User | null = null;
-      
-      if (role === 'doctor' && username === 'doctor' && password === 'password') {
-        isValidCredentials = true;
-        userData = {
-          id: 'd1',
-          name: 'Dr. Jane Smith',
-          role: 'doctor'
-        };
-      } else if (role === 'receptionist' && username === 'receptionist' && password === 'password') {
-        isValidCredentials = true;
-        userData = {
-          id: 'r1',
-          name: 'Robert Johnson',
-          role: 'receptionist'
-        };
-      } else if (role === 'admin' && username === 'admin' && password === 'admin123') {
-        isValidCredentials = true;
-        userData = {
-          id: 'a1',
-          name: 'Admin User',
-          role: 'admin'
-        };
-      }
-      
-      if (isValidCredentials && userData) {
-        const token = `mock-jwt-token-${role}`; // In a real app, this would come from your backend
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(userData));
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        
-        setUser(userData);
-        setIsAuthenticated(true);
-        toast({
-          title: "Login Successful",
-          description: `Welcome back, ${userData.name}!`,
-        });
-      } else {
-        throw new Error('Invalid credentials');
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-      toast({
-        title: "Login Failed",
-        description: "Invalid username or password. Please try again.",
-        variant: "destructive"
-      });
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    axios.defaults.headers.common['Authorization'] = '';
-    setUser(null);
-    setIsAuthenticated(false);
-    toast({
-      title: "Logged Out",
-      description: "You have been successfully logged out.",
-    });
-  };
-
-  return (
-    <AuthContext.Provider value={{ user, isLoading, isAuthenticated, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
-
+// This is a compatibility layer to maintain backward compatibility with code
+// that imports useAuth from the old location
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const auth = useNewAuth();
+  
+  // Return interface that matches old auth context API
+  return {
+    user: auth.user,
+    isLoading: auth.isLoading,
+    isAuthenticated: auth.isAuthenticated,
+    login: async (username: string, password: string, role?: string) => {
+      try {
+        // Call the appropriate login function based on role
+        let success = false;
+        if (role === 'doctor') {
+          success = await auth.doctorLogin(username, password);
+        } else if (role === 'receptionist' || role === 'staff') {
+          success = await auth.receptionistLogin(username, password);
+        } else {
+          success = await auth.login(username, password);
+        }
+        
+        // Convert to the old API's void return type
+        if (!success) {
+          throw new Error('Login failed');
+        }
+      } catch (error) {
+        throw error;
+      }
+    },
+    logout: auth.logout,
+    error: auth.error,
+    clearError: auth.clearError,
+    updateUser: auth.updateUser,
+    getProfile: auth.getProfile
+  };
 };
+
+// Re-export the original AuthProvider for backward compatibility
+export { AuthProvider };
+
+export default useAuth;

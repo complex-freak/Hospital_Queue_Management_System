@@ -21,6 +21,9 @@ export interface User {
   emergencyContactRelationship?: string;
   role?: string;
   username?: string;
+  specialization?: string;
+  department?: string;
+  licenseNumber?: string;
 }
 
 export interface Appointment {
@@ -54,7 +57,7 @@ export interface Notification {
 export const transformToFrontendUser = (backendUser: any): User => {
   // Handle different user types (staff, doctor, patient)
   const isPatient = backendUser.phone_number !== undefined;
-  const isDoctor = backendUser.user?.first_name !== undefined;
+  const isDoctor = backendUser.user?.first_name !== undefined || backendUser.specialization !== undefined;
   
   if (isPatient) {
     // Transform patient data
@@ -77,20 +80,41 @@ export const transformToFrontendUser = (backendUser: any): User => {
     };
   } else if (isDoctor) {
     // Transform doctor data (which might have nested user data)
-    const userData = backendUser.user || {};
+    let userData = backendUser;
+    // If the doctor data includes a user property, it contains the core user data
+    if (backendUser.user) {
+      userData = backendUser.user;
+    }
+    
     return {
       id: backendUser.id,
-      fullName: `${userData.first_name} ${userData.last_name}`,
+      fullName: `Dr. ${userData.first_name} ${userData.last_name}`,
       firstName: userData.first_name,
       lastName: userData.last_name,
       email: userData.email,
       username: userData.username,
       isAuthenticated: true,
       isProfileComplete: true,
-      role: 'doctor'
+      role: 'doctor',
+      specialization: backendUser.specialization,
+      department: backendUser.department,
+      licenseNumber: backendUser.license_number
     };
   } else {
-    // Transform staff/admin user data
+    // Transform staff/admin/receptionist user data
+    let role = 'staff';
+    if (backendUser.role) {
+      // Role might be either full string or enum value
+      const roleStr = backendUser.role.toLowerCase();
+      if (roleStr.includes('admin')) {
+        role = 'admin';
+      } else if (roleStr.includes('receptionist')) {
+        role = 'receptionist';
+      } else if (roleStr.includes('staff')) {
+        role = 'staff';
+      }
+    }
+    
     return {
       id: backendUser.id,
       fullName: `${backendUser.first_name} ${backendUser.last_name}`,
@@ -100,7 +124,7 @@ export const transformToFrontendUser = (backendUser: any): User => {
       username: backendUser.username,
       isAuthenticated: true,
       isProfileComplete: true,
-      role: backendUser.role?.toLowerCase() || 'staff'
+      role
     };
   }
 };

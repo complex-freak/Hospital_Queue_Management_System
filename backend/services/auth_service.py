@@ -1,4 +1,5 @@
 from typing import Optional
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -84,14 +85,16 @@ class AuthService:
         # Hash password
         hashed_password = get_password_hash(user_data.password)
         
-        # Create user
+        # Create user with timestamps
         user = User(
             username=user_data.username,
             password_hash=hashed_password,
             email=user_data.email,
             first_name=user_data.first_name,
             last_name=user_data.last_name,
-            role=user_data.role
+            role=user_data.role,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
         )
         
         db.add(user)
@@ -122,6 +125,9 @@ class AuthService:
             user.is_active = user_update.is_active
         if user_update.password is not None:
             user.password_hash = get_password_hash(user_update.password)
+        
+        # Always update the timestamp
+        user.updated_at = datetime.utcnow()
         
         await db.commit()
         await db.refresh(user)

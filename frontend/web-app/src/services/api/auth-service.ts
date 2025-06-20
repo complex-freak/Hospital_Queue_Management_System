@@ -6,6 +6,11 @@ export interface LoginCredentials {
   password: string;
 }
 
+export interface PatientLoginCredentials {
+  phone_number: string;
+  password: string;
+}
+
 export interface RegisterData {
   username: string;
   email: string;
@@ -36,26 +41,47 @@ export interface AuthResponse {
 
 // Authentication service for the web app
 export const authService = {
-  // Staff/receptionist login
+  // Admin login
   login: async (credentials: LoginCredentials) => {
     try {
-      const response = await api.post('/staff/login', credentials);
+      // Map credentials to backend format (if needed)
+      const response = await api.post('/admin/login', {
+        username: credentials.username,
+        password: credentials.password
+      });
       
       if (response.data.access_token) {
         // Store the token in localStorage
         localStorage.setItem('token', response.data.access_token);
         
-        // If user data is returned with the token, store it
-        if (response.data.user) {
-          localStorage.setItem('user', JSON.stringify(transformToFrontendUser(response.data.user)));
+        // Try to fetch user profile since it's not returned with token
+        try {
+          const userResponse = await api.get('/admin/me', {
+            headers: { 'Authorization': `Bearer ${response.data.access_token}` }
+          });
+          
+          if (userResponse.data) {
+            const userData = transformToFrontendUser(userResponse.data);
+            localStorage.setItem('user', JSON.stringify(userData));
+            
+            return {
+              success: true,
+              data: {
+                accessToken: response.data.access_token,
+                tokenType: response.data.token_type || 'bearer',
+                user: userData
+              }
+            };
+          }
+        } catch (profileError) {
+          console.error('Error fetching user profile:', profileError);
         }
         
         return {
           success: true,
           data: {
             accessToken: response.data.access_token,
-            tokenType: response.data.token_type || 'bearer',
-            user: response.data.user ? transformToFrontendUser(response.data.user) : undefined
+            tokenType: response.data.token_type || 'bearer'
           }
         };
       }
@@ -73,23 +99,46 @@ export const authService = {
   // Doctor login
   doctorLogin: async (credentials: LoginCredentials) => {
     try {
-      const response = await api.post('/doctor/login', credentials);
+      const response = await api.post('/doctor/login', {
+        username: credentials.username,
+        password: credentials.password
+      });
       
       if (response.data.access_token) {
         // Store the token in localStorage
         localStorage.setItem('token', response.data.access_token);
         
-        // If user data is returned with the token, store it
-        if (response.data.user) {
-          localStorage.setItem('user', JSON.stringify(transformToFrontendUser(response.data.user)));
+        // Try to fetch doctor profile
+        try {
+          const profileResponse = await api.get('/doctor/me', {
+            headers: { 'Authorization': `Bearer ${response.data.access_token}` }
+          });
+          
+          if (profileResponse.data) {
+            const userData = transformToFrontendUser({
+              ...profileResponse.data,
+              role: 'doctor'
+            });
+            localStorage.setItem('user', JSON.stringify(userData));
+            
+            return {
+              success: true,
+              data: {
+                accessToken: response.data.access_token,
+                tokenType: response.data.token_type || 'bearer',
+                user: userData
+              }
+            };
+          }
+        } catch (profileError) {
+          console.error('Error fetching doctor profile:', profileError);
         }
         
         return {
           success: true,
           data: {
             accessToken: response.data.access_token,
-            tokenType: response.data.token_type || 'bearer',
-            user: response.data.user ? transformToFrontendUser(response.data.user) : undefined
+            tokenType: response.data.token_type || 'bearer'
           }
         };
       }
@@ -104,11 +153,89 @@ export const authService = {
     }
   },
   
+  // Staff (receptionist) login
+  receptionistLogin: async (credentials: LoginCredentials) => {
+    try {
+      // Use staff login endpoint for receptionists
+      const response = await api.post('/staff/login', {
+        username: credentials.username,
+        password: credentials.password
+      });
+      
+      if (response.data.access_token) {
+        // Store the token in localStorage
+        localStorage.setItem('token', response.data.access_token);
+        
+        // Try to fetch user profile
+        try {
+          const userResponse = await api.get('/staff/me', {
+            headers: { 'Authorization': `Bearer ${response.data.access_token}` }
+          });
+          
+          if (userResponse.data) {
+            const userData = transformToFrontendUser(userResponse.data);
+            localStorage.setItem('user', JSON.stringify(userData));
+            
+            return {
+              success: true,
+              data: {
+                accessToken: response.data.access_token,
+                tokenType: response.data.token_type || 'bearer',
+                user: userData
+              }
+            };
+          }
+        } catch (profileError) {
+          console.error('Error fetching user profile:', profileError);
+        }
+        
+        return {
+          success: true,
+          data: {
+            accessToken: response.data.access_token,
+            tokenType: response.data.token_type || 'bearer'
+          }
+        };
+      }
+      
+      return { success: false, error: 'Invalid response from server' };
+    } catch (error: any) {
+      console.error('Receptionist login error:', error);
+      return { 
+        success: false, 
+        error: error.response?.data?.detail || 'Failed to login. Please check your credentials.'
+      };
+    }
+  },
+  
   // Logout
-  logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    return { success: true };
+  logout: async () => {
+    try {
+      // Determine the appropriate API endpoint based on user role
+      const user = authService.getCurrentUser();
+      let endpoint = '/admin/logout';
+      
+      if (user?.role === 'doctor') {
+        endpoint = '/doctor/logout';
+      } else if (user?.role === 'receptionist' || user?.role === 'staff') {
+        endpoint = '/staff/logout';
+      }
+      
+      // Call the logout endpoint
+      await api.post(endpoint);
+      
+      // Clear local storage regardless of API response
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      
+      return { success: true };
+    } catch (error) {
+      // Even if the API call fails, we still want to clear local storage
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      console.error('Logout error:', error);
+      return { success: true };
+    }
   },
   
   // Check if user is authenticated
@@ -152,14 +279,14 @@ export const authService = {
   // Change password
   changePassword: async (passwordData: ChangePasswordData) => {
     try {
-      // Adapt to appropriate API endpoint based on user role
+      // Determine the appropriate API endpoint based on user role
       const user = authService.getCurrentUser();
-      let endpoint = '/staff/change-password';
+      let endpoint = '/admin/change-password';
       
       if (user?.role === 'doctor') {
         endpoint = '/doctor/change-password';
-      } else if (user?.role === 'admin') {
-        endpoint = '/admin/change-password';
+      } else if (user?.role === 'receptionist' || user?.role === 'staff') {
+        endpoint = '/staff/change-password';
       }
       
       const response = await api.post(endpoint, {
@@ -176,6 +303,34 @@ export const authService = {
       return { 
         success: false, 
         error: error.response?.data?.detail || 'Failed to change password.'
+      };
+    }
+  },
+  
+  // Get user profile
+  getProfile: async () => {
+    try {
+      // Determine the appropriate API endpoint based on user role
+      const user = authService.getCurrentUser();
+      let endpoint = '/admin/me';
+      
+      if (user?.role === 'doctor') {
+        endpoint = '/doctor/me';
+      } else if (user?.role === 'receptionist' || user?.role === 'staff') {
+        endpoint = '/staff/me';
+      }
+      
+      const response = await api.get(endpoint);
+      
+      return {
+        success: true,
+        data: transformToFrontendUser(response.data)
+      };
+    } catch (error: any) {
+      console.error('Get profile error:', error);
+      return { 
+        success: false, 
+        error: error.response?.data?.detail || 'Failed to fetch user profile.'
       };
     }
   },

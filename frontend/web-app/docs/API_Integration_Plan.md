@@ -14,11 +14,11 @@ This document outlines the API integration requirements between the frontend web
 
 ### Backend API Endpoints
 
-| Endpoint | Method | Purpose | Required by Web App? |
-| --- | --- | --- | --- |
-| `/patient/login` | POST | Patient authentication | ❌ No |
-| `/patient/register` | POST | Patient registration | ❌ No |
-| Inferred staff/doctor endpoints from dependencies.py | POST | Staff/doctor authentication | ✅ Yes |
+| Endpoint                                             | Method | Purpose                     | Required by Web App? |
+| ---------------------------------------------------- | ------ | --------------------------- | -------------------- |
+| `/patient/login`                                   | POST   | Patient authentication      | ❌ No                |
+| `/patient/register`                                | POST   | Patient registration        | ❌ No                |
+| Inferred staff/doctor endpoints from dependencies.py | POST   | Staff/doctor authentication | ✅ Yes               |
 
 ### Data Format Mapping
 
@@ -73,8 +73,8 @@ class Patient(BaseModel):
 - Map `date_of_birth` to `dateOfBirth` (with string formatting)
 - Add `isAuthenticated` and `isProfileComplete` fields
 - Ensure consistent gender enumeration
-
 - Frontend → Backend:
+
   - Split name fields if only `fullName` is provided
   - Convert date formats as needed
 
@@ -91,17 +91,17 @@ class Patient(BaseModel):
 
 ### Backend API Endpoints
 
-| Endpoint | Method | Purpose | Required by Web App? |
-| --- | --- | --- | --- |
-| `/patient/register` | POST | Register a new patient | ✅ Yes |
-| `/patient/complete-profile` | POST | Complete patient profile | ✅ Yes |
-| `/patient/profile` | GET | Get patient profile | ✅ Yes |
-| `/patient/profile` | PUT | Update patient profile | ✅ Yes |
-| `/patient/delete-account` | DELETE | Delete patient account | ❌ No |
-| `/patient/change-password` | POST | Change patient password | ❌ No |
-| No endpoint for draft registrations | - | Save/get draft registrations | ✅ Yes (needs to be created) |
-| No endpoint for all patients | - | Get all patients | ✅ Yes (needs to be created) |
-| No endpoint for priority updates | - | Update patient priority | ✅ Yes (needs to be created) |
+| Endpoint                            | Method | Purpose                      | Required by Web App?         |
+| ----------------------------------- | ------ | ---------------------------- | ---------------------------- |
+| `/patient/register`               | POST   | Register a new patient       | ✅ Yes                       |
+| `/patient/complete-profile`       | POST   | Complete patient profile     | ✅ Yes                       |
+| `/patient/profile`                | GET    | Get patient profile          | ✅ Yes                       |
+| `/patient/profile`                | PUT    | Update patient profile       | ✅ Yes                       |
+| `/patient/delete-account`         | DELETE | Delete patient account       | ❌ No                        |
+| `/patient/change-password`        | POST   | Change patient password      | ❌ No                        |
+| No endpoint for draft registrations | -      | Save/get draft registrations | ✅ Yes (needs to be created) |
+| No endpoint for all patients        | -      | Get all patients             | ✅ Yes (needs to be created) |
+| No endpoint for priority updates    | -      | Update patient priority      | ✅ Yes (needs to be created) |
 
 ### Data Format Mapping
 
@@ -117,13 +117,13 @@ This section already covered in the Authentication and User Management section.
 
 ### Backend API Endpoints
 
-| Endpoint | Method | Purpose | Required by Web App? |
-| --- | --- | --- | --- |
-| `/patient/queue-status` | GET | Get queue status for patient | ✅ Yes |
-| `/doctor/queue` | GET | Get queue for current doctor | ✅ Yes |
-| `/doctor/queue/next` | GET | Get next patient in queue | ✅ Yes |
-| `/doctor/queue/{queue_id}/serve` | POST | Mark patient as served | ✅ Yes |
-| No endpoint for queue position updates | - | Update queue positions | ✅ Yes (needs to be created) |
+| Endpoint                               | Method | Purpose                      | Required by Web App?         |
+| -------------------------------------- | ------ | ---------------------------- | ---------------------------- |
+| `/patient/queue-status`              | GET    | Get queue status for patient | ✅ Yes                       |
+| `/doctor/queue`                      | GET    | Get queue for current doctor | ✅ Yes                       |
+| `/doctor/queue/next`                 | GET    | Get next patient in queue    | ✅ Yes                       |
+| `/doctor/queue/{queue_id}/serve`     | POST   | Mark patient as served       | ✅ Yes                       |
+| No endpoint for queue position updates | -      | Update queue positions       | ✅ Yes (needs to be created) |
 
 ### Data Format Mapping
 
@@ -175,8 +175,8 @@ class Appointment(AppointmentBase, BaseSchema):
 - Map `created_at` to `createdAt` (with string formatting)
 - Extract `doctorName` from `doctor.user.first_name` and `doctor.user.last_name`
 - Map status values between backend and frontend enums
-
 - Frontend → Backend:
+
   - Map `conditionType` to the backend's `urgency` enum values
   - Convert status values to the backend's status enum format
 
@@ -194,17 +194,17 @@ class Appointment(AppointmentBase, BaseSchema):
 
 ### Backend API Endpoints
 
-| Endpoint | Method | Purpose | Required by Web App? |
-| --- | --- | --- | --- |
-| `/doctor/queue` | GET | Get doctor's queue | ✅ Yes |
-| `/doctor/queue/next` | GET | Get next patient | ✅ Yes |
-| `/doctor/queue/{queue_id}/serve` | POST | Mark patient as served | ✅ Yes |
-| `/doctor/patients/{patient_id}` | GET | Get patient details | ✅ Yes |
-| `/doctor/appointments/history` | GET | Get appointment history | ✅ Yes |
-| `/doctor/dashboard/stats` | GET | Get doctor dashboard stats | ✅ Yes |
-| No endpoint for doctor status | - | Update doctor availability | ✅ Yes (needs to be created) |
-| No endpoint for note history | - | Get note history and versions | ✅ Yes (needs to be created) |
-| No endpoint for consultation feedback | - | Submit consultation feedback | ✅ Yes (needs to be created) |
+| Endpoint                              | Method | Purpose                       | Required by Web App?         |
+| ------------------------------------- | ------ | ----------------------------- | ---------------------------- |
+| `/doctor/queue`                     | GET    | Get doctor's queue            | ✅ Yes                       |
+| `/doctor/queue/next`                | GET    | Get next patient              | ✅ Yes                       |
+| `/doctor/queue/{queue_id}/serve`    | POST   | Mark patient as served        | ✅ Yes                       |
+| `/doctor/patients/{patient_id}`     | GET    | Get patient details           | ✅ Yes                       |
+| `/doctor/appointments/history`      | GET    | Get appointment history       | ✅ Yes                       |
+| `/doctor/dashboard/stats`           | GET    | Get doctor dashboard stats    | ✅ Yes                       |
+| No endpoint for doctor status         | -      | Update doctor availability    | ✅ Yes (needs to be created) |
+| No endpoint for note history          | -      | Get note history and versions | ✅ Yes (needs to be created) |
+| No endpoint for consultation feedback | -      | Submit consultation feedback  | ✅ Yes (needs to be created) |
 
 ### Data Format Mapping
 
@@ -223,9 +223,9 @@ Doctor profile and related data models will need to be defined based on the fron
 
 ### Backend API Endpoints
 
-| Endpoint | Method | Purpose | Required by Web App? |
-| --- | --- | --- | --- |
-| No specific notification endpoints | - | Notification management | ✅ Yes (needs to be created) |
+| Endpoint                           | Method | Purpose                 | Required by Web App?         |
+| ---------------------------------- | ------ | ----------------------- | ---------------------------- |
+| No specific notification endpoints | -      | Notification management | ✅ Yes (needs to be created) |
 
 ### Data Format Mapping
 
@@ -259,8 +259,8 @@ class Notification(NotificationBase, BaseSchema):
 - Add `title` field to backend model
 - Convert `created_at` to `createdAt` (with string formatting)
 - Add `read` status field to backend model
-
 - Frontend → Backend:
+
   - Need to track read status for notifications
   - Need to add title field in backend
 
@@ -269,20 +269,21 @@ class Notification(NotificationBase, BaseSchema):
 The following endpoints need to be added to the backend to fully support the web application:
 
 1. **Patient Management**:
+
    - GET `/staff/patients` - Get all patients
    - POST `/staff/patients/drafts` - Save draft registration
    - GET `/staff/patients/drafts/{id}` - Get draft registration
    - PATCH `/patients/{id}/priority` - Update patient priority
-
 2. **Doctor Management**:
+
    - POST `/doctor/status` - Update doctor availability status
    - PUT `/doctor/profile` - Update doctor profile
    - POST `/patients/{id}/notes` - Save patient notes
    - GET `/patients/{id}/notes/history` - Get note history
    - POST `/patients/{id}/notes/versions` - Save note version
    - POST `/consultations` - Submit consultation feedback
-
 3. **Notification System**:
+
    - GET `/notifications` - Get notifications
    - PUT `/notifications/{id}/read` - Mark notification as read
    - PUT `/notifications/read-all` - Mark all notifications as read
@@ -291,16 +292,17 @@ The following endpoints need to be added to the backend to fully support the web
 ## 7. Implementation Priorities
 
 1. **Phase 1: Authentication and User Base**
+
    - Implement proper authentication service in the web app
    - Align frontend authentication flow with backend JWT strategy
    - Implement token refresh mechanisms
-
 2. **Phase 2: Core Data Model Alignment**
+
    - Create data transformation services to convert between backend and frontend data models
    - Implement adapter functions for each model (Patient/User, Appointment, Notification)
    - Update backend models to include missing frontend fields
-
 3. **Phase 3: API Endpoint Implementation**
+
    - Enhance backend API to support:
    - Draft patient registrations
    - Doctor note history and versions
@@ -310,8 +312,8 @@ The following endpoints need to be added to the backend to fully support the web
    - Update `receptionist-service.ts` to use real API endpoints
    - Update `doctor-service.ts` to use real API endpoints
    - Implement a notification service using real API endpoints
-
 4. **Phase 4: Testing and Validation**
+
    - Create integration tests for each API endpoint
    - Validate data flow between frontend and backend
    - Test error handling scenarios
@@ -329,14 +331,12 @@ The following endpoints need to be added to the backend to fully support the web
      ├── queue-service.ts     # Queue management API
      └── notification-service.ts  # Notifications API
    ```
-
 2. Implement API client with:
+
    - Token management
    - Request/response interceptors
    - Error handling with toast notifications
-
 3. Update individual services to connect to real endpoints
-
 4. Add data transformation utilities for converting between backend and frontend data models
 
 ## 9. Data Flow
@@ -361,10 +361,11 @@ The following endpoints need to be added to the backend to fully support the web
 The frontend and backend components share similar data models and functionality, but several misalignments need to be addressed. The main gaps are in naming conventions, field structure, and some missing API endpoints. By following the implementation plan outlined above, we can achieve a seamless integration between the frontend web application and the backend API.
 
 Key priorities for alignment are:
+
 1. Creating a proper authentication service in the frontend
 2. Aligning data models between frontend and backend
 3. Adding missing API endpoints for features like draft registrations and note history
-4. Ensuring consistent API response formats that match frontend expectations 
+4. Ensuring consistent API response formats that match frontend expectations
 
 ## 11. Next Steps
 
@@ -373,4 +374,4 @@ Key priorities for alignment are:
 3. Update receptionist service to use real endpoints
 4. Connect doctor service to backend
 5. Implement notification management
-6. Request backend team to add missing endpoints 
+6. Request backend team to add missing endpoints

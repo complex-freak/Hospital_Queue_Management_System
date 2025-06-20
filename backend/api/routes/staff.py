@@ -3,15 +3,19 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, desc
 from uuid import UUID
+from datetime import datetime, timedelta
 from database import get_db
-from models import Patient, User, Appointment, Queue, QueueStatus, UrgencyLevel
+from models import Patient, User, Appointment, Queue, QueueStatus, UrgencyLevel, UserRole
 from schemas import (
     PatientCreate, AppointmentCreate, AppointmentUpdate,
     Patient as PatientSchema, Appointment as AppointmentSchema,
-    Queue as QueueSchema, QueueUpdate, DashboardStats, QueueCreate
+    Queue as QueueSchema, QueueUpdate, DashboardStats, QueueCreate,
+    Token, UserLogin, User as UserSchema
 )
 from services import AuthService, AppointmentService, QueueService, NotificationService
 from api.dependencies import require_staff, log_audit_event
+from api.core.security import create_access_token
+from api.core.config import settings
 
 router = APIRouter()
 
@@ -501,3 +505,104 @@ async def create_queue_entry(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Queue entry creation failed: {str(e)}"
         )
+
+@router.post("/login", response_model=Token)
+async def login_staff(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    login_data: UserLogin,
+    db: AsyncSession = Depends(get_db)
+):
+    """Staff/Receptionist login"""
+    user = await AuthService.authenticate_user(
+        db, login_data.username, login_data.password
+    )
+    
+    if not user:
+        # Log failed login attempt
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=None,
+            user_type="user",
+            action="LOGIN_FAILED",
+            resource="user",
+            details=f"Failed login attempt for staff username {login_data.username}",
+            db=db
+        )
+        
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password"
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is deactivated"
+        )
+    
+    # Verify user is staff or receptionist
+    if user.role not in [UserRole.STAFF, UserRole.RECEPTIONIST]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. User is not staff or receptionist."
+        )
+    
+    # Create access token
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        subject=str(user.id), expires_delta=access_token_expires
+    )
+    
+    # Log successful login
+    background_tasks.add_task(
+        log_audit_event,
+        request=request,
+        user_id=user.id,
+        user_type="user",
+        action="LOGIN",
+        resource="user",
+        resource_id=user.id,
+        details=f"Successful {user.role} login",
+        db=db
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@router.post("/logout")
+async def logout_staff(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Staff/Receptionist logout"""
+    try:
+        # Log successful logout
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="LOGOUT",
+            resource="user",
+            resource_id=current_user.id,
+            details=f"{current_user.role} {current_user.username} logged out",
+            db=db
+        )
+        
+        return {"message": "Logged out successfully"}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Logout failed"
+        )
+
+@router.get("/me", response_model=UserSchema)
+async def get_current_staff(
+    current_user: User = Depends(require_staff)
+):
+    """Get current authenticated staff/receptionist profile"""
+    return current_user

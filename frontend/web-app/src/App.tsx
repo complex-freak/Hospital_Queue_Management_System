@@ -1,6 +1,6 @@
 import { Toaster } from "@/components/ui/toaster";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
-import { AuthProvider, useAuth } from "@/hooks/use-auth-context";
+import { AuthProvider, useAuth } from "@/context/auth-context";
 import { LanguageProvider } from "@/contexts/language-context";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import RoleBasedRoute from "@/components/auth/RoleBasedRoute";
@@ -68,7 +68,7 @@ const App = () => (
           <Route path="/forgot-password" element={<ForgotPassword />} />
           
           {/* Protected routes */}
-          <Route element={<ProtectedRouteComponent requiredRoles={['doctor']} />}>
+          <Route element={<ProtectedRoute requiredRoles={['doctor', 'receptionist', 'admin', 'staff']} />}>
             {/* Doctor routes */}
             <Route 
               path="/doctor/*" 
@@ -91,7 +91,7 @@ const App = () => (
             <Route 
               path="/register-patient" 
               element={
-                <RoleBasedRoute allowedRoles={['receptionist']}>
+                <RoleBasedRoute allowedRoles={['receptionist', 'staff']}>
                   <PatientRegistration />
                 </RoleBasedRoute>
               } 
@@ -173,7 +173,7 @@ const DashboardRouter = () => {
     return <Navigate to="/doctor/dashboard" replace />;
   }
   
-  if (user?.role === 'receptionist') {
+  if (user?.role === 'receptionist' || user?.role === 'staff') {
     return <Navigate to="/receptionist/dashboard" replace />;
   }
   
