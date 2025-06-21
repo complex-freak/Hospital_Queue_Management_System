@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, desc
 from uuid import UUID
+import uuid
 from datetime import datetime, timedelta
 
 from database import get_db
@@ -124,21 +125,36 @@ async def get_current_doctor(
 ):
     """Get current authenticated doctor profile"""
     try:
-        # Get doctor info
+        # Get doctor info with user relationship
         result = await db.execute(
             select(Doctor).where(Doctor.user_id == current_user.id)
         )
         doctor = result.scalar_one_or_none()
         
+        # If doctor profile doesn't exist, create one automatically
         if not doctor:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Doctor profile not found"
+            print(f"Creating doctor profile for user {current_user.username} ({current_user.id})")
+            doctor = Doctor(
+                id=uuid.uuid4(),
+                user_id=current_user.id,
+                specialization="General Medicine",  # Default values
+                department="General Practice",
+                is_available=True
             )
+            
+            db.add(doctor)
+            await db.commit()
+            await db.refresh(doctor)
+            print(f"Created doctor profile with ID {doctor.id}")
+        
+        # Manually set the user attribute to avoid relationship loading errors
+        doctor.user = current_user
         
         return doctor
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch doctor profile"

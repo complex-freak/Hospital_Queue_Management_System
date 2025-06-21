@@ -470,7 +470,7 @@ class NotificationService:
         """Send SMS notification via Twilio"""
         try:
             from twilio.rest import Client
-            from core.config import settings
+            from api.core.config import settings
             
             if not all([settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN, settings.TWILIO_FROM_NUMBER]):
                 logger.warning("Twilio credentials not configured")

@@ -127,7 +127,7 @@ app.include_router(
 
 app.include_router(
     doctor.router,
-    prefix="/api/v1/doctors",
+    prefix="/api/v1/doctor",
     tags=["Doctors"]
 )
 

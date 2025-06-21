@@ -135,8 +135,19 @@ class UserLogin(BaseModel):
 class User(UserBase, BaseSchema):
     id: UUID
     is_active: bool
-    created_at: datetime
+    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    
+    model_config = {
+        "from_attributes": True,
+        "populate_by_name": True,
+        "validate_assignment": True,
+    }
+    
+    @field_validator('created_at')
+    @classmethod
+    def set_created_at_if_none(cls, v):
+        return v or datetime.utcnow()  # Provide default value if None
 
 
 # Doctor schemas
@@ -163,7 +174,13 @@ class DoctorUpdate(BaseModel):
 class Doctor(DoctorBase, BaseSchema):
     id: UUID
     user_id: UUID
-    user: User
+    user: Optional[User] = None
+    
+    model_config = {
+        "from_attributes": True,
+        "populate_by_name": True,
+        "validate_assignment": True,
+    }
 
 
 # Appointment schemas
