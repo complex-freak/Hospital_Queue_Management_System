@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/context/auth-context";
 import { LanguageProvider } from "@/contexts/language-context";
+import { NotificationProvider } from "@/contexts/notification-context";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import RoleBasedRoute from "@/components/auth/RoleBasedRoute";
 import Login from "@/pages/Login";
@@ -26,6 +27,7 @@ import ReportingTools from "@/features/admin/pages/ReportingTools";
 
 // Shared features
 import Profile from "@/pages/Profile";
+import NotificationsPage from "@/features/shared/components/NotificationsPage";
 
 // Protected route component that requires authentication
 const ProtectedRouteComponent = ({ requiredRoles = [] }: { requiredRoles?: string[] }) => {
@@ -60,107 +62,110 @@ const ProtectedRouteComponent = ({ requiredRoles = [] }: { requiredRoles?: strin
 const App = () => (
   <LanguageProvider>
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* Public routes */}
-          <Route path="/" element={<Navigate to="/login" />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          
-          {/* Protected routes */}
-          <Route element={<ProtectedRoute requiredRoles={['doctor', 'receptionist', 'admin', 'staff']} />}>
-            {/* Doctor routes */}
-            <Route 
-              path="/doctor/*" 
-              element={
-                <RoleBasedRoute allowedRoles={['doctor']}>
-                  <DoctorDashboard />
-                </RoleBasedRoute>
-              } 
-            />
+      <NotificationProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/" element={<Navigate to="/login" />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             
-            {/* Receptionist routes */}
-            <Route 
-              path="/receptionist/*" 
-              element={
-                <RoleBasedRoute allowedRoles={['receptionist', 'staff']}>
-                  <ReceptionistDashboard />
-                </RoleBasedRoute>
-              } 
-            />
-            <Route 
-              path="/register-patient" 
-              element={
-                <RoleBasedRoute allowedRoles={['receptionist', 'staff']}>
-                  <PatientRegistration />
-                </RoleBasedRoute>
-              } 
-            />
+            {/* Protected routes */}
+            <Route element={<ProtectedRoute requiredRoles={['doctor', 'receptionist', 'admin', 'staff']} />}>
+              {/* Doctor routes */}
+              <Route 
+                path="/doctor/*" 
+                element={
+                  <RoleBasedRoute allowedRoles={['doctor']}>
+                    <DoctorDashboard />
+                  </RoleBasedRoute>
+                } 
+              />
+              
+              {/* Receptionist routes */}
+              <Route 
+                path="/receptionist/*" 
+                element={
+                  <RoleBasedRoute allowedRoles={['receptionist', 'staff']}>
+                    <ReceptionistDashboard />
+                  </RoleBasedRoute>
+                } 
+              />
+              <Route 
+                path="/register-patient" 
+                element={
+                  <RoleBasedRoute allowedRoles={['receptionist', 'staff']}>
+                    <PatientRegistration />
+                  </RoleBasedRoute>
+                } 
+              />
+              
+              {/* Admin routes */}
+              <Route 
+                path="/admin/*" 
+                element={
+                  <RoleBasedRoute allowedRoles={['admin']}>
+                    <AdminDashboard />
+                  </RoleBasedRoute>
+                } 
+              />
+              <Route 
+                path="/admin/users" 
+                element={
+                  <RoleBasedRoute allowedRoles={['admin']}>
+                    <UserManagement />
+                  </RoleBasedRoute>
+                } 
+              />
+              <Route 
+                path="/admin/analytics" 
+                element={
+                  <RoleBasedRoute allowedRoles={['admin']}>
+                    <Analytics />
+                  </RoleBasedRoute>
+                } 
+              />
+              <Route 
+                path="/admin/queue-configuration" 
+                element={
+                  <RoleBasedRoute allowedRoles={['admin']}>
+                    <QueueConfiguration />
+                  </RoleBasedRoute>
+                } 
+              />
+              <Route 
+                path="/admin/system-settings" 
+                element={
+                  <RoleBasedRoute allowedRoles={['admin']}>
+                    <SystemSettings />
+                  </RoleBasedRoute>
+                } 
+              />
+              <Route 
+                path="/admin/reporting" 
+                element={
+                  <RoleBasedRoute allowedRoles={['admin']}>
+                    <ReportingTools />
+                  </RoleBasedRoute>
+                } 
+              />
+              
+              {/* Shared routes */}
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
+              
+              {/* Legacy route - redirect to role-specific dashboard */}
+              <Route 
+                path="/dashboard" 
+                element={<DashboardRouter />} 
+              />
+            </Route>
             
-            {/* Admin routes */}
-            <Route 
-              path="/admin/*" 
-              element={
-                <RoleBasedRoute allowedRoles={['admin']}>
-                  <AdminDashboard />
-                </RoleBasedRoute>
-              } 
-            />
-            <Route 
-              path="/admin/users" 
-              element={
-                <RoleBasedRoute allowedRoles={['admin']}>
-                  <UserManagement />
-                </RoleBasedRoute>
-              } 
-            />
-            <Route 
-              path="/admin/analytics" 
-              element={
-                <RoleBasedRoute allowedRoles={['admin']}>
-                  <Analytics />
-                </RoleBasedRoute>
-              } 
-            />
-            <Route 
-              path="/admin/queue-configuration" 
-              element={
-                <RoleBasedRoute allowedRoles={['admin']}>
-                  <QueueConfiguration />
-                </RoleBasedRoute>
-              } 
-            />
-            <Route 
-              path="/admin/system-settings" 
-              element={
-                <RoleBasedRoute allowedRoles={['admin']}>
-                  <SystemSettings />
-                </RoleBasedRoute>
-              } 
-            />
-            <Route 
-              path="/admin/reporting" 
-              element={
-                <RoleBasedRoute allowedRoles={['admin']}>
-                  <ReportingTools />
-                </RoleBasedRoute>
-              } 
-            />
-            
-            {/* Shared routes */}
-            <Route path="/profile" element={<Profile />} />
-            
-            {/* Legacy route - redirect to role-specific dashboard */}
-            <Route 
-              path="/dashboard" 
-              element={<DashboardRouter />} 
-            />
-          </Route>
-          
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-      <Toaster />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+        <Toaster />
+      </NotificationProvider>
     </AuthProvider>
   </LanguageProvider>
 );

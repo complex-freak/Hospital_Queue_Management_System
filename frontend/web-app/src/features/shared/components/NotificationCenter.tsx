@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { notificationService } from '@/services/notifications/notificationService';
-import { Bell } from 'lucide-react';
+import { useNotifications } from '@/contexts/notification-context';
+import { Bell, Check, Trash, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { Link } from 'react-router-dom';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,39 +18,43 @@ import {
   DropdownMenuPortal,
   DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface NotificationCenterProps {
   className?: string;
 }
 
 const NotificationCenter: React.FC<NotificationCenterProps> = ({ className }) => {
-  const [notifications, setNotifications] = useState(notificationService.getNotifications());
-  const [unreadCount, setUnreadCount] = useState(notificationService.getUnreadCount());
+  const { 
+    notifications, 
+    unreadCount, 
+    markAsRead, 
+    markAllAsRead, 
+    clearAll,
+    fetchNotifications
+  } = useNotifications();
+  
   const [isOpen, setIsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>('all');
 
+  // Fetch notifications when the dropdown is opened
   useEffect(() => {
-    // Add listener for notifications
-    const unsubscribe = notificationService.addListener((updatedNotifications) => {
-      setNotifications(updatedNotifications);
-      setUnreadCount(updatedNotifications.filter(n => !n.read).length);
-    });
-
-    // Cleanup on unmount
-    return () => {
-      unsubscribe();
-    };
-  }, []);
+    if (isOpen) {
+      fetchNotifications();
+    }
+  }, [isOpen, fetchNotifications]);
 
   const handleNotificationClick = (id: string) => {
-    notificationService.markAsRead(id);
+    markAsRead(id);
   };
 
   const handleMarkAllAsRead = () => {
-    notificationService.markAllAsRead();
+    markAllAsRead();
   };
 
   const handleClearAll = () => {
-    notificationService.clearAllNotifications();
+    clearAll();
   };
 
   const getNotificationIcon = (type: string) => {
@@ -65,6 +70,13 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ className }) =>
         return <div className="h-2 w-2 rounded-full bg-blue-500" />;
     }
   };
+
+  // Filter notifications based on active tab
+  const filteredNotifications = notifications.filter(notification => {
+    if (activeTab === 'all') return true;
+    if (activeTab === 'unread') return !notification.read;
+    return notification.type === activeTab;
+  });
 
   return (
     <div className={cn("relative", className)}>
@@ -89,8 +101,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ className }) =>
                 onClick={handleMarkAllAsRead}
                 disabled={unreadCount === 0}
                 className="h-6 text-xs"
+                title="Mark all as read"
               >
-                Mark all as read
+                <Check className="h-3 w-3 mr-1" />
+                Mark all read
               </Button>
               <Button 
                 variant="ghost" 
@@ -98,20 +112,36 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ className }) =>
                 onClick={handleClearAll}
                 disabled={notifications.length === 0}
                 className="h-6 text-xs"
+                title="Clear all notifications"
               >
+                <Trash className="h-3 w-3 mr-1" />
                 Clear all
               </Button>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           
-          {notifications.length === 0 ? (
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="w-full grid grid-cols-4 mb-2">
+              <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
+              <TabsTrigger value="unread" className="text-xs">
+                Unread
+                {unreadCount > 0 && (
+                  <Badge variant="secondary" className="ml-1">{unreadCount}</Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="info" className="text-xs">Info</TabsTrigger>
+              <TabsTrigger value="warning" className="text-xs">Important</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          
+          {filteredNotifications.length === 0 ? (
             <div className="py-4 text-center text-sm text-gray-500">
               No notifications
             </div>
           ) : (
             <div className="max-h-[300px] overflow-y-auto">
-              {notifications.map((notification) => (
+              {filteredNotifications.map((notification) => (
                 <DropdownMenuItem 
                   key={notification.id} 
                   className={cn(
@@ -128,7 +158,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ className }) =>
                       <p className="text-sm font-medium">{notification.title}</p>
                       <p className="text-xs text-gray-500">{notification.message}</p>
                     </div>
-                    <div className="ml-2 text-xs text-gray-400">
+                    <div className="ml-2 text-xs text-gray-400 whitespace-nowrap">
                       {format(notification.timestamp, 'h:mm a')}
                     </div>
                   </div>
@@ -140,12 +170,14 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ className }) =>
           {notifications.length > 0 && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem 
-                className="text-center text-xs text-blue-600"
-                onClick={() => setIsOpen(false)}
-              >
-                View all notifications
-              </DropdownMenuItem>
+              <Link to="/notifications" style={{ width: '100%' }}>
+                <DropdownMenuItem 
+                  className="text-center text-xs text-blue-600"
+                  onClick={() => setIsOpen(false)}
+                >
+                  View all notifications
+                </DropdownMenuItem>
+              </Link>
             </>
           )}
         </DropdownMenuContent>
