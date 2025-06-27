@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from api.core.config import settings
 from api.routes import patient, staff, doctor, admin
 from api.routes.sync import router as sync_router
+from api.routes.notifications import router as notifications_router
 
 # Configure logging
 logging.basicConfig(
@@ -142,6 +143,12 @@ app.include_router(
     sync_router,
     prefix=f"{settings.API_V1_STR}/sync",
     tags=["Sync"]
+)
+
+app.include_router(
+    notifications_router,
+    prefix=f"{settings.API_V1_STR}/notifications",
+    tags=["Notifications"]
 )
 
 # Custom OpenAPI schema

@@ -5,8 +5,8 @@ from uuid import UUID
 from datetime import datetime
 
 from database import get_db
-from models import User, Patient, Notification, NotificationType, DeviceToken
-from schemas import NotificationUpdate
+from models import User, Patient, Notification as NotificationModel, NotificationType, DeviceToken
+from schemas import NotificationUpdate, Notification
 from services import NotificationService
 from api.dependencies import get_current_user, log_audit_event
 

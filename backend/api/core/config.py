@@ -2,8 +2,23 @@ from typing import Optional, List, Any
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 import secrets
+import os
+from pathlib import Path
+
+# Get the base directory
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 class Settings(BaseSettings):
+    """
+    Application settings loaded from environment variables or .env file.
+    
+    This class uses Pydantic's BaseSettings to automatically load environment
+    variables. It will first look for actual environment variables, then fall
+    back to values in the .env file if they're not found in the environment.
+    
+    Default values are provided for development, but should be overridden
+    in production through environment variables or .env file.
+    """
     # API Settings
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = secrets.token_urlsafe(32)
@@ -71,9 +86,19 @@ class Settings(BaseSettings):
         raise ValueError(v)
     
     model_config = {
-        "env_file": ".env",
+        # Path to .env file relative to the project root
+        "env_file": os.path.join(BASE_DIR, ".env"),
         "case_sensitive": True,
         "extra": "ignore"
     }
 
+# Create a global settings instance
 settings = Settings()
+
+# Validate critical settings
+if settings.ENVIRONMENT == "production" and settings.SECRET_KEY == secrets.token_urlsafe(32):
+    import logging
+    logging.warning(
+        "WARNING: The SECRET_KEY is using the default value. "
+        "Please set the SECRET_KEY environment variable to a secure value in production."
+    )
