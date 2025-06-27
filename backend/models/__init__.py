@@ -122,6 +122,8 @@ class Doctor(Base):
     department = Column(String(100), nullable=True)
     consultation_fee = Column(Integer, nullable=True)  # in cents
     is_available = Column(Boolean, default=True)
+    shift_start = Column(String(10), nullable=True)  # HH:MM format
+    shift_end = Column(String(10), nullable=True)  # HH:MM format
     
     # Relationships
     user = relationship("User", back_populates="doctor_profile")

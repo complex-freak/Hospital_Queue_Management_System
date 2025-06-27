@@ -13,7 +13,7 @@ from api.routes.sync import router as sync_router
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, settings.LOG_LEVEL),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
@@ -22,16 +22,16 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     # Startup
-    logger.info("Starting Intelligent Queue Management System...")
+    logger.info(f"Starting {settings.API_NAME}...")
     yield
     # Shutdown
     logger.info("Shutting down...")
 
 # Create FastAPI app
 app = FastAPI(
-    title="Intelligent Queue Management System API",
+    title=settings.API_NAME,
     description="A comprehensive queue management system for healthcare facilities",
-    version="1.0.0",
+    version=settings.API_VERSION,
     docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
     lifespan=lifespan
@@ -96,8 +96,9 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "version": "1.0.0",
+        "version": settings.API_VERSION,
         "environment": settings.ENVIRONMENT,
+        "debug": settings.DEBUG,
         "timestamp": time.time()
     }
 
@@ -106,40 +107,40 @@ async def health_check():
 async def root():
     """Root endpoint with API information"""
     return {
-        "message": "Intelligent Queue Management System API",
-        "version": "1.0.0",
+        "message": settings.API_NAME,
+        "version": settings.API_VERSION,
         "docs": "/docs",
-        "health": "/health"
+        "health": "/api/v1/health"
     }
 
 # Include routers with prefixes
 app.include_router(
     patient.router,
-    prefix="/api/v1/patient",
+    prefix=f"{settings.API_V1_STR}/patient",
     tags=["Patients"]
 )
 
 app.include_router(
     staff.router,
-    prefix="/api/v1/staff",
+    prefix=f"{settings.API_V1_STR}/staff",
     tags=["Staff"]
 )
 
 app.include_router(
     doctor.router,
-    prefix="/api/v1/doctor",
+    prefix=f"{settings.API_V1_STR}/doctor",
     tags=["Doctors"]
 )
 
 app.include_router(
     admin.router,
-    prefix="/api/v1/admin",
+    prefix=f"{settings.API_V1_STR}/admin",
     tags=["Admin"]
 )
 
 app.include_router(
     sync_router,
-    prefix="/api/v1/sync",
+    prefix=f"{settings.API_V1_STR}/sync",
     tags=["Sync"]
 )
 
@@ -149,8 +150,8 @@ def custom_openapi():
         return app.openapi_schema
     
     openapi_schema = get_openapi(
-        title="Intelligent Queue Management System API",
-        version="1.0.0",
+        title=settings.API_NAME,
+        version=settings.API_VERSION,
         description="A comprehensive queue management system for healthcare facilities",
         routes=app.routes,
     )
@@ -173,8 +174,8 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=8000,
+        host=settings.HOST,
+        port=settings.PORT,
         reload=settings.ENVIRONMENT == "development",
-        log_level="info"
+        log_level=settings.LOG_LEVEL.lower()
     )

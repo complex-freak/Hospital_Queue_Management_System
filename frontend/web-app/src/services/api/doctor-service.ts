@@ -11,13 +11,45 @@ import {
 } from './data-transformers';
 
 export const doctorService = {
+  // Get doctor profile
+  getDoctorProfile: async () => {
+    try {
+      const user = authService.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const response = await api.get('/doctor/me');
+      
+      return { 
+        success: true, 
+        data: {
+          id: response.data.id,
+          userId: response.data.user_id,
+          isAvailable: response.data.is_available,
+          specialization: response.data.specialization,
+          department: response.data.department,
+          licenseNumber: response.data.license_number,
+          consultationFee: response.data.consultation_fee,
+          shiftStart: response.data.shift_start,
+          shiftEnd: response.data.shift_end,
+          // Transform additional fields as needed
+        }
+      };
+    } catch (error: any) {
+      console.error('Error fetching doctor profile:', error);
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to fetch doctor profile'
+      };
+    }
+  },
+
   // Update doctor availability status
   updateStatus: async (status: { isAvailable: boolean; shiftStart?: string; shiftEnd?: string }) => {
     try {
       const user = authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
 
-      const response = await api.post('/doctor/status', {
+      const response = await api.put('/doctor/status', {
         is_available: status.isAvailable,
         shift_start: status.shiftStart,
         shift_end: status.shiftEnd
@@ -26,7 +58,15 @@ export const doctorService = {
       return { 
         success: true, 
         message: 'Status updated successfully',
-        data: response.data
+        data: {
+          id: response.data.id,
+          userId: response.data.user_id,
+          isAvailable: response.data.is_available,
+          specialization: response.data.specialization,
+          department: response.data.department,
+          shiftStart: response.data.shift_start,
+          shiftEnd: response.data.shift_end,
+        }
       };
     } catch (error: any) {
       console.error('Error updating status:', error);
@@ -238,7 +278,11 @@ export const doctorService = {
   // Get doctor queue
   getDoctorQueue: async () => {
     try {
+      const user = authService.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
       const response = await api.get('/doctor/queue');
+      
       return {
         success: true,
         data: response.data
@@ -247,7 +291,8 @@ export const doctorService = {
       console.error('Error fetching doctor queue:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to fetch doctor queue'
+        error: error.response?.data?.detail || 'Failed to fetch doctor queue',
+        data: []
       };
     }
   },
@@ -300,6 +345,48 @@ export const doctorService = {
       return {
         success: false,
         error: error.response?.data?.detail || 'Failed to fetch dashboard stats'
+      };
+    }
+  },
+
+  // Mark patient as seen
+  markPatientSeen: async (queueId: string) => {
+    try {
+      const user = authService.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const response = await api.post(`/doctor/queue/${queueId}/serve`);
+      
+      return { 
+        success: true, 
+        data: response.data
+      };
+    } catch (error: any) {
+      console.error('Error marking patient as seen:', error);
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to mark patient as seen'
+      };
+    }
+  },
+
+  // Skip patient
+  skipPatient: async (queueId: string) => {
+    try {
+      const user = authService.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const response = await api.post(`/doctor/queue/${queueId}/skip`);
+      
+      return { 
+        success: true, 
+        data: response.data
+      };
+    } catch (error: any) {
+      console.error('Error skipping patient:', error);
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to skip patient'
       };
     }
   }

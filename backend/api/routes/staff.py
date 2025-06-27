@@ -1,11 +1,14 @@
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, desc
+from sqlalchemy import select, and_, func, desc, asc, insert
 from uuid import UUID
 from datetime import datetime, timedelta
 from database import get_db
-from models import Patient, User, Appointment, Queue, QueueStatus, UrgencyLevel, UserRole
+from models import (
+    Patient, User, Appointment, Queue, QueueStatus, UrgencyLevel, UserRole, 
+    AppointmentStatus, NotificationType, DeviceToken
+)
 from schemas import (
     PatientCreate, AppointmentCreate, AppointmentUpdate,
     Patient as PatientSchema, Appointment as AppointmentSchema,
@@ -15,7 +18,8 @@ from schemas import (
     NotificationTemplateCreate, NotificationTemplate, NotificationTemplateUpdate,
     NotificationFromTemplate
 )
-from services import AuthService, AppointmentService, QueueService, NotificationService
+from services import AuthService, AppointmentService, QueueService, NotificationService, PatientService
+from services.__init__ import NotificationService  # Ensure the latest version is imported
 from api.dependencies import require_staff, log_audit_event
 from api.core.security import create_access_token
 from api.core.config import settings
@@ -89,18 +93,16 @@ async def create_appointment(
         
         # Add to queue
         queue_entry = await QueueService.add_to_queue(
-            db, appointment.id, appointment.urgency_level
+            db, appointment.id, appointment.urgency
         )
         
         # Send notification
         background_tasks.add_task(
-            NotificationService.send_appointment_confirmation,
-            patient.phone_number,
-            {
-                'patient_name': patient.full_name,
-                'queue_number': queue_entry.queue_number,
-                'appointment_id': str(appointment.id)
-            }
+            NotificationService.notify_appointment_booked,
+            db,
+            patient,
+            appointment,
+            queue_entry.queue_number
         )
         
         # Log audit event
@@ -178,15 +180,13 @@ async def update_appointment(
                 detail="Appointment not found"
             )
         
-        appointment = await AppointmentService.update_appointment(
-            db, appointment_id, appointment_update
-        )
+        # Update appointment fields
+        for field, value in appointment_update.model_dump(exclude_unset=True).items():
+            setattr(appointment, field, value)
         
-        # If urgency changed, update queue priority
-        if appointment_update.urgency_level:
-            await QueueService.update_queue_priority(
-                db, appointment_id, appointment_update.urgency_level
-            )
+        appointment.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(appointment)
         
         # Log audit event
         background_tasks.add_task(
@@ -221,7 +221,14 @@ async def get_queue_status(
 ):
     """Get current queue status"""
     try:
-        return await QueueService.get_queue_status(db)
+        # Get all queue entries for today
+        result = await db.execute(
+            select(Queue)
+            .where(func.date(Queue.created_at) == func.current_date())
+            .order_by(desc(Queue.priority_score), asc(Queue.queue_number))
+        )
+        queue_entries = result.scalars().all()
+        return queue_entries
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -239,9 +246,25 @@ async def update_queue_entry(
 ):
     """Update queue entry (reorder, change priority)"""
     try:
-        queue_entry = await QueueService.update_queue_entry(
-            db, queue_id, queue_update
+        # Get the queue entry
+        result = await db.execute(
+            select(Queue).where(Queue.id == queue_id)
         )
+        queue_entry = result.scalar_one_or_none()
+        
+        if not queue_entry:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Queue entry not found"
+            )
+        
+        # Update fields
+        for field, value in queue_update.model_dump(exclude_unset=True).items():
+            setattr(queue_entry, field, value)
+        
+        queue_entry.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(queue_entry)
         
         # Log audit event
         background_tasks.add_task(
@@ -297,16 +320,18 @@ async def call_next_patient(
         queue_entry, appointment, patient = queue_data
         
         # Update queue status to called
-        await QueueService.call_patient(db, queue_id)
+        queue_entry.status = QueueStatus.CALLED
+        queue_entry.called_at = datetime.utcnow()
+        queue_entry.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(queue_entry)
         
         # Send notification to patient
         background_tasks.add_task(
-            NotificationService.send_patient_called_notification,
-            patient.phone_number,
-            {
-                'patient_name': patient.full_name,
-                'queue_number': queue_entry.queue_number
-            }
+            NotificationService.notify_turn_ready,
+            db,
+            patient,
+            queue_entry.queue_number
         )
         
         # Log audit event
@@ -350,7 +375,7 @@ async def search_patients(
             select(Patient).where(
                 and_(
                     Patient.phone_number.ilike(f"%{q}%") |
-                    Patient.full_name.ilike(f"%{q}%")
+                    (Patient.first_name + " " + Patient.last_name).ilike(f"%{q}%")
                 )
             ).limit(limit)
         )
@@ -390,7 +415,7 @@ async def get_dashboard_stats(
             .where(
                 and_(
                     Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED]),
-                    Appointment.urgency_level == UrgencyLevel.URGENT
+                    Appointment.urgency == UrgencyLevel.HIGH
                 )
             )
         )
@@ -402,7 +427,18 @@ async def get_dashboard_stats(
             ))
             .where(
                 and_(
-                    Queue.status == QueueStatus.SERVED,
+                    Queue.status == QueueStatus.COMPLETED,
+                    func.date(Queue.created_at) == func.current_date()
+                )
+            )
+        )
+        
+        # Get count of completed appointments today
+        served_today = await db.execute(
+            select(func.count(Queue.id))
+            .where(
+                and_(
+                    Queue.status == QueueStatus.COMPLETED,
                     func.date(Queue.created_at) == func.current_date()
                 )
             )
@@ -410,8 +446,8 @@ async def get_dashboard_stats(
         
         return DashboardStats(
             total_patients_today=today_patients.scalar() or 0,
+            total_served_today=served_today.scalar() or 0,
             current_queue_length=queue_length.scalar() or 0,
-            urgent_cases=urgent_cases.scalar() or 0,
             average_wait_time=int(avg_wait_time.scalar() or 0)
         )
         
@@ -428,13 +464,75 @@ async def get_queue_stats(
 ):
     """Get queue statistics for staff"""
     try:
-        # Get queue statistics from QueueService
-        queue_stats = await QueueService.get_queue_statistics(db)
-        return queue_stats
+        # Get queue counts by status
+        waiting_count = await db.execute(
+            select(func.count(Queue.id))
+            .where(
+                and_(
+                    Queue.status == QueueStatus.WAITING,
+                    func.date(Queue.created_at) == func.current_date()
+                )
+            )
+        )
+        
+        called_count = await db.execute(
+            select(func.count(Queue.id))
+            .where(
+                and_(
+                    Queue.status == QueueStatus.CALLED,
+                    func.date(Queue.created_at) == func.current_date()
+                )
+            )
+        )
+        
+        completed_count = await db.execute(
+            select(func.count(Queue.id))
+            .where(
+                and_(
+                    Queue.status == QueueStatus.COMPLETED,
+                    func.date(Queue.created_at) == func.current_date()
+                )
+            )
+        )
+        
+        cancelled_count = await db.execute(
+            select(func.count(Queue.id))
+            .where(
+                and_(
+                    Queue.status == QueueStatus.CANCELLED,
+                    func.date(Queue.created_at) == func.current_date()
+                )
+            )
+        )
+        
+        # Average wait time
+        avg_wait_time = await db.execute(
+            select(func.avg(
+                func.extract('epoch', Queue.served_at - Queue.created_at) / 60
+            ))
+            .where(
+                and_(
+                    Queue.status == QueueStatus.COMPLETED,
+                    Queue.served_at.isnot(None),
+                    func.date(Queue.created_at) == func.current_date()
+                )
+            )
+        )
+        
+        return {
+            'date': datetime.now().date().isoformat(),
+            'waiting': waiting_count.scalar() or 0,
+            'called': called_count.scalar() or 0,
+            'completed': completed_count.scalar() or 0,
+            'cancelled': cancelled_count.scalar() or 0,
+            'total': (waiting_count.scalar() or 0) + (called_count.scalar() or 0) + 
+                    (completed_count.scalar() or 0) + (cancelled_count.scalar() or 0),
+            'average_wait_time_minutes': round(avg_wait_time.scalar() or 0, 2)
+        }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch queue statistics"
+            detail=f"Failed to get queue statistics: {str(e)}"
         )
 
 @router.post("/queue", response_model=QueueSchema)
@@ -447,7 +545,11 @@ async def create_queue(
 ):
     """Create a new queue"""
     try:
-        queue = await QueueService.create_queue(db, queue_data)
+        # Create queue entry
+        queue_values = queue_data.model_dump()
+        result = await db.execute(insert(Queue).values(**queue_values).returning(Queue))
+        queue = result.scalar_one()
+        await db.commit()
         
         # Log audit event
         background_tasks.add_task(
@@ -486,18 +588,27 @@ async def create_queue_entry(
     """Add a patient to the queue"""
     try:
         # Extract data
-        queue_id = entry_data.get("queue_id")
-        patient_id = entry_data.get("patient_id")
-        priority = entry_data.get("priority", "normal")
-        estimated_duration = entry_data.get("estimated_duration_minutes", 15)
+        appointment_id = entry_data.get("appointment_id")
+        if not appointment_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="appointment_id is required"
+            )
+            
+        # Get the appointment to check its urgency
+        result = await db.execute(
+            select(Appointment).where(Appointment.id == appointment_id)
+        )
+        appointment = result.scalar_one_or_none()
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found"
+            )
         
         # Create queue entry
         queue_entry = await QueueService.add_to_queue(
-            db, 
-            patient_id=patient_id,
-            queue_id=queue_id,
-            priority=priority,
-            estimated_duration=estimated_duration
+            db, appointment.id, appointment.urgency
         )
         
         # Log audit event
@@ -817,14 +928,33 @@ async def cancel_appointment(
         
         # Notify patient if needed
         if hasattr(appointment, 'patient') and appointment.patient:
+            # Inline notification implementation
+            async def send_cancellation_notification(db, patient, reason):
+                reason_text = f" Reason: {reason}" if reason else ""
+                message = f"Your appointment has been cancelled.{reason_text} Please contact us to reschedule."
+                
+                # Create and send notification
+                notification_data = NotificationCreate(
+                    patient_id=patient.id,
+                    type=NotificationType.SMS,
+                    recipient=patient.phone_number,
+                    message=message,
+                    subject="Appointment Cancelled"
+                )
+                
+                # Create notification record and send SMS
+                await NotificationService.send_notification(
+                    db, 
+                    patient.id, 
+                    "Appointment Cancelled", 
+                    message
+                )
+            
             background_tasks.add_task(
-                NotificationService.send_appointment_cancelled,
-                appointment.patient.phone_number,
-                {
-                    'patient_name': f"{appointment.patient.first_name} {appointment.patient.last_name}",
-                    'appointment_id': str(appointment.id),
-                    'reason': reason
-                }
+                send_cancellation_notification,
+                db,
+                appointment.patient,
+                reason
             )
         
         return {
@@ -1167,6 +1297,9 @@ async def send_notification_from_template(
         )
         
         # Log audit event
+        notification_id = notification.id if notification else None
+        recipient = notification.recipient if notification else "unknown"
+        
         background_tasks.add_task(
             log_audit_event,
             request=request,
@@ -1174,8 +1307,8 @@ async def send_notification_from_template(
             user_type="user",
             action="CREATE",
             resource="notification",
-            resource_id=notification.id,
-            details=f"Staff {current_user.username} sent notification from template to {notification.recipient}",
+            resource_id=notification_id,
+            details=f"Staff {current_user.username} sent notification from template to {recipient}",
             db=db
         )
         

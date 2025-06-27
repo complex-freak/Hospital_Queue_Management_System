@@ -6,7 +6,7 @@ from uuid import UUID
 
 from database import get_db
 from api.dependencies import get_current_user, RoleChecker
-from models import User
+from models import User, UserRole, AuditResource
 from services.sync_service import SyncService
 from services.audit_service import AuditService
 from schemas import SyncRequest, SyncResponse, ConflictResolution
@@ -41,10 +41,9 @@ async def sync_offline_data(
         background_tasks.add_task(
             AuditService.log_event,
             db=db,
-            user_id=current_user.id,
             action="sync_offline_data",
-            resource_type="sync",
-            resource_id=str(current_user.id),
+            resource=AuditResource.SYSTEM,
+            user_id=current_user.id,
             details={
                 "processed_items": sync_results['processed'],
                 "errors_count": len(sync_results['errors']),
@@ -100,22 +99,25 @@ async def resolve_conflict(
     Resolve sync conflicts manually
     """
     try:
+        # Use empty dict if resolution_data is None
+        resolution_data = conflict_resolution.resolution_data or {}
+        
         result = await SyncService.resolve_conflict(
             db=db,
             user_id=current_user.id,
             conflict_id=conflict_resolution.conflict_id,
             resolution=conflict_resolution.resolution,
-            resolution_data=conflict_resolution.resolution_data
+            resolution_data=resolution_data
         )
         
         # Log conflict resolution in background
         background_tasks.add_task(
             AuditService.log_event,
             db=db,
-            user_id=current_user.id,
             action="resolve_sync_conflict",
-            resource_type="sync",
-            resource_id=conflict_resolution.conflict_id,
+            resource=AuditResource.SYSTEM,
+            user_id=current_user.id,
+            resource_id=UUID(conflict_resolution.conflict_id) if conflict_resolution.conflict_id else None,
             details={
                 "resolution": conflict_resolution.resolution,
                 "success": result['resolved']
@@ -162,7 +164,7 @@ async def get_server_updates(
         )
 
 # Staff-only endpoints
-@router.post("/force-sync", dependencies=[Depends(RoleChecker(["staff", "admin"]))])
+@router.post("/force-sync", dependencies=[Depends(RoleChecker([UserRole.STAFF, UserRole.ADMIN]))])
 async def force_sync_all_data(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
@@ -183,10 +185,10 @@ async def force_sync_all_data(
         background_tasks.add_task(
             AuditService.log_event,
             db=db,
-            user_id=current_user.id,
             action="force_sync",
-            resource_type="sync",
-            resource_id=str(current_user.id),
+            resource=AuditResource.SYSTEM,
+            user_id=current_user.id,
+            resource_id=current_user.id,
             details={"sync_status": sync_status}
         )
         

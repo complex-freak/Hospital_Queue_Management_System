@@ -1,6 +1,6 @@
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, insert
 from uuid import UUID
 from datetime import datetime, date
 
@@ -50,20 +50,20 @@ class AppointmentService:
             raise ValueError("Patient already has an active appointment today")
         
         # Create appointment
-        appointment = Appointment(
-            patient_id=appointment_data.patient_id,
-            doctor_id=appointment_data.doctor_id,
-            appointment_date=appointment_data.appointment_date or datetime.utcnow().date(),
-            urgency_level=appointment_data.urgency_level or UrgencyLevel.NORMAL,
-            reason=appointment_data.reason,
-            notes=appointment_data.notes,
-            created_by=created_by_user_id,
-            status="scheduled"
-        )
+        appointment_values = {
+            "patient_id": appointment_data.patient_id,
+            "doctor_id": appointment_data.doctor_id,
+            "appointment_date": appointment_data.appointment_date or datetime.utcnow().date(),
+            "urgency_level": getattr(appointment_data, "urgency", UrgencyLevel.NORMAL),
+            "reason": appointment_data.reason,
+            "notes": getattr(appointment_data, "notes", None),
+            "created_by": created_by_user_id,
+            "status": "scheduled"
+        }
         
-        db.add(appointment)
+        result = await db.execute(insert(Appointment).values(**appointment_values).returning(Appointment))
+        appointment = result.scalar_one()
         await db.commit()
-        await db.refresh(appointment)
         
         return appointment
     
@@ -96,8 +96,8 @@ class AppointmentService:
         if appointment_update.appointment_date is not None:
             appointment.appointment_date = appointment_update.appointment_date
         
-        if appointment_update.urgency_level is not None:
-            appointment.urgency_level = appointment_update.urgency_level
+        if getattr(appointment_update, "urgency", None) is not None:
+            appointment.urgency_level = appointment_update.urgency
         
         if appointment_update.reason is not None:
             appointment.reason = appointment_update.reason
@@ -175,7 +175,7 @@ class AppointmentService:
         return result.scalars().all()
     
     @staticmethod
-    async def cancel_appointment(db: AsyncSession, appointment_id: UUID, reason: str = None) -> Appointment:
+    async def cancel_appointment(db: AsyncSession, appointment_id: UUID, reason: Optional[str] = None) -> Appointment:
         """Cancel an appointment"""
         result = await db.execute(
             select(Appointment).where(Appointment.id == appointment_id)
@@ -198,7 +198,7 @@ class AppointmentService:
         return appointment
     
     @staticmethod
-    async def complete_appointment(db: AsyncSession, appointment_id: UUID, notes: str = None) -> Appointment:
+    async def complete_appointment(db: AsyncSession, appointment_id: UUID, notes: Optional[str] = None) -> Appointment:
         """Mark an appointment as completed"""
         result = await db.execute(
             select(Appointment).where(Appointment.id == appointment_id)
@@ -247,7 +247,7 @@ class AppointmentService:
     ) -> List[Appointment]:
         """Get urgent appointments"""
         query = select(Appointment).where(
-            Appointment.urgency_level == UrgencyLevel.URGENT
+            Appointment.urgency == UrgencyLevel.HIGH
         )
         
         if appointment_date:

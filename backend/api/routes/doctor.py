@@ -1,7 +1,7 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, desc
+from sqlalchemy import select, and_, func, desc, insert
 from uuid import UUID
 import uuid
 from datetime import datetime, timedelta
@@ -20,7 +20,8 @@ from schemas import (
     ConsultationFeedback, ConsultationFeedbackCreate, ConsultationFeedbackUpdate,
     DoctorStatusUpdate
 )
-from services import QueueService, NotificationService, AuthService, DoctorService
+from services import NotificationService, AuthService, DoctorService
+from services.queue_service import QueueService
 from api.dependencies import require_doctor, log_audit_event
 from api.core.security import create_access_token
 from api.core.config import settings
@@ -137,17 +138,18 @@ async def get_current_doctor(
         # If doctor profile doesn't exist, create one automatically
         if not doctor:
             print(f"Creating doctor profile for user {current_user.username} ({current_user.id})")
-            doctor = Doctor(
-                id=uuid.uuid4(),
+            
+            # Create doctor profile
+            stmt = insert(Doctor).values(
                 user_id=current_user.id,
                 specialization="General Medicine",  # Default values
                 department="General Practice",
                 is_available=True
-            )
+            ).returning(Doctor)
             
-            db.add(doctor)
+            result = await db.execute(stmt)
+            doctor = result.scalar_one()
             await db.commit()
-            await db.refresh(doctor)
             print(f"Created doctor profile with ID {doctor.id}")
         
         # Manually set the user attribute to avoid relationship loading errors
@@ -195,7 +197,7 @@ async def get_doctor_queue(
             )
             .order_by(
                 # Urgent cases first
-                Appointment.urgency_level.desc(),
+                Appointment.urgency.desc(),
                 # Then by queue number
                 Queue.queue_number
             )
@@ -203,11 +205,12 @@ async def get_doctor_queue(
         
         queue_entries = []
         for queue, appointment, patient in result.all():
-            queue_schema = QueueSchema.model_validate(queue)
-            # Add patient and appointment info to the response
-            queue_schema.patient = PatientSchema.model_validate(patient)
-            queue_schema.appointment = AppointmentSchema.model_validate(appointment)
-            queue_entries.append(queue_schema)
+            queue_dict = {
+                **QueueSchema.model_validate(queue).model_dump(),
+                "patient": PatientSchema.model_validate(patient),
+                "appointment": AppointmentSchema.model_validate(appointment)
+            }
+            queue_entries.append(QueueSchema.model_validate(queue_dict))
         
         return queue_entries
         
@@ -248,7 +251,7 @@ async def get_next_patient(
                 )
             )
             .order_by(
-                Appointment.urgency_level.desc(),
+                Appointment.urgency.desc(),
                 Queue.queue_number
             )
             .limit(1)
@@ -259,11 +262,12 @@ async def get_next_patient(
             return None
         
         queue, appointment, patient = queue_data
-        queue_schema = QueueSchema.model_validate(queue)
-        queue_schema.patient = PatientSchema.model_validate(patient)
-        queue_schema.appointment = AppointmentSchema.model_validate(appointment)
-        
-        return queue_schema
+        queue_dict = {
+            **QueueSchema.model_validate(queue).model_dump(),
+            "patient": PatientSchema.model_validate(patient),
+            "appointment": AppointmentSchema.model_validate(appointment)
+        }
+        return QueueSchema.model_validate(queue_dict)
         
     except Exception as e:
         raise HTTPException(
@@ -317,7 +321,7 @@ async def mark_patient_served(
         queue_entry, appointment, patient = queue_data
         
         # Mark as served
-        await QueueService.mark_served(db, queue_id)
+        await QueueService.update_queue_status(db, queue_id, QueueStatus.COMPLETED)
         
         # Update appointment status
         appointment.status = "completed"
@@ -328,15 +332,16 @@ async def mark_patient_served(
         await db.commit()
         
         # Send completion notification
-        background_tasks.add_task(
-            NotificationService.send_appointment_completion_notification,
-            patient.phone_number,
-            {
-                'patient_name': patient.full_name,
-                'doctor_name': f"Dr. {doctor.full_name}",
-                'queue_number': queue_entry.queue_number
-            }
-        )
+        # TODO: Implement this method in NotificationService
+        # background_tasks.add_task(
+        #     NotificationService.send_appointment_completion_notification,
+        #     patient.phone_number,
+        #     {
+        #         'patient_name': patient.full_name,
+        #         'doctor_name': f"Dr. {doctor.full_name}",
+        #         'queue_number': queue_entry.queue_number
+        #     }
+        # )
         
         # Log audit event
         background_tasks.add_task(
@@ -482,7 +487,7 @@ async def get_doctor_dashboard_stats(
                 and_(
                     Appointment.doctor_id == doctor.id,
                     Appointment.status == "completed",
-                    func.date(Appointment.completed_at) == func.current_date()
+                    func.date(Appointment.updated_at) == func.current_date()
                 )
             )
         )
@@ -507,7 +512,7 @@ async def get_doctor_dashboard_stats(
                 and_(
                     Appointment.doctor_id == doctor.id,
                     Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED]),
-                    Appointment.urgency_level == UrgencyLevel.URGENT
+                    Appointment.urgency == UrgencyLevel.HIGH
                 )
             )
         )
@@ -521,7 +526,7 @@ async def get_doctor_dashboard_stats(
             .where(
                 and_(
                     Appointment.doctor_id == doctor.id,
-                    Queue.status == QueueStatus.SERVED,
+                    Queue.status == QueueStatus.COMPLETED,
                     func.date(Queue.created_at) == func.current_date()
                 )
             )

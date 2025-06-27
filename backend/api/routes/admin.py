@@ -1,7 +1,7 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, Body
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, and_
+from sqlalchemy import select, func, desc, and_, insert, column
 from uuid import UUID
 from datetime import datetime, timedelta
 
@@ -14,8 +14,12 @@ from schemas import (
     SystemAnalytics, Token, UserLogin, PatientCreate, PatientSchema
 )
 from services import AuthService, PatientService, NotificationService
+from services.queue_analytics import get_queue_analytics
+from services.appointment_analytics import get_appointment_analytics
+from services.doctor_analytics import get_doctor_analytics
+from services.system_analytics import get_system_overview
 from api.dependencies import require_admin, log_audit_event
-from api.core.security import create_access_token
+from api.core.security import create_access_token, get_password_hash
 from api.core.config import settings
 
 router = APIRouter()
@@ -193,7 +197,21 @@ async def update_user(
                 detail="User not found"
             )
         
-        user = await AuthService.update_user(db, user_id, user_update)
+        # Update user fields directly
+        if user_update.email is not None:
+            user.email = user_update.email
+        if user_update.first_name is not None:
+            user.first_name = user_update.first_name
+        if user_update.last_name is not None:
+            user.last_name = user_update.last_name
+        if user_update.is_active is not None:
+            user.is_active = user_update.is_active
+        
+        # Always update the timestamp
+        user.updated_at = datetime.utcnow()
+        
+        await db.commit()
+        await db.refresh(user)
         
         # Log audit event
         background_tasks.add_task(
@@ -276,6 +294,11 @@ async def delete_user(
 @router.post("/doctors", response_model=DoctorSchema)
 async def create_doctor(
     doctor_data: DoctorCreate,
+    username: str,
+    password: str,
+    email: str,
+    first_name: str,
+    last_name: str,
     request: Request,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(require_admin),
@@ -283,7 +306,51 @@ async def create_doctor(
 ):
     """Create a new doctor"""
     try:
-        doctor = await AuthService.create_doctor(db, doctor_data)
+        # Create user first
+        user_data = UserCreate(
+            username=username,
+            password=password,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            role=UserRole.DOCTOR
+        )
+        
+        # Check if username already exists
+        result = await db.execute(
+            select(User).where(User.username == user_data.username)
+        )
+        if result.scalar_one_or_none():
+            raise ValueError("Username already exists")
+        
+        # Create user with timestamps
+        stmt = insert(User).values(
+            username=user_data.username,
+            password_hash=get_password_hash(user_data.password),
+            email=user_data.email,
+            first_name=user_data.first_name,
+            last_name=user_data.last_name,
+            role=user_data.role,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        ).returning(User)
+        
+        result = await db.execute(stmt)
+        user = result.scalar_one()
+        
+        # Create doctor profile
+        doctor_stmt = insert(Doctor).values(
+            user_id=user.id,
+            specialization=doctor_data.specialization,
+            license_number=doctor_data.license_number,
+            department=doctor_data.department,
+            consultation_fee=doctor_data.consultation_fee,
+            is_available=True
+        ).returning(Doctor)
+        
+        result = await db.execute(doctor_stmt)
+        doctor = result.scalar_one()
+        await db.commit()
         
         # Log audit event
         background_tasks.add_task(
@@ -321,7 +388,7 @@ async def get_doctors(
     """Get all doctors"""
     try:
         result = await db.execute(
-            select(Doctor).order_by(Doctor.full_name).offset(skip).limit(limit)
+            select(Doctor).order_by(column("full_name")).offset(skip).limit(limit)
         )
         doctors = result.scalars().all()
         
@@ -355,7 +422,24 @@ async def update_doctor(
                 detail="Doctor not found"
             )
         
-        doctor = await AuthService.update_doctor(db, doctor_id, doctor_update)
+        # Update doctor fields directly
+        if doctor_update.specialization is not None:
+            doctor.specialization = doctor_update.specialization
+        if doctor_update.license_number is not None:
+            doctor.license_number = doctor_update.license_number
+        if doctor_update.department is not None:
+            doctor.department = doctor_update.department
+        if doctor_update.consultation_fee is not None:
+            doctor.consultation_fee = doctor_update.consultation_fee
+        if doctor_update.is_available is not None:
+            doctor.is_available = doctor_update.is_available
+        if doctor_update.shift_start is not None:
+            doctor.shift_start = doctor_update.shift_start
+        if doctor_update.shift_end is not None:
+            doctor.shift_end = doctor_update.shift_end
+            
+        await db.commit()
+        await db.refresh(doctor)
         
         # Log audit event
         background_tasks.add_task(
@@ -394,7 +478,7 @@ async def get_audit_logs(
 ):
     """Get audit logs"""
     try:
-        query = select(AuditLog).order_by(desc(AuditLog.timestamp))
+        query = select(AuditLog).order_by(desc(AuditLog.created_at))
         
         if action_filter:
             query = query.where(AuditLog.action == action_filter)
@@ -504,7 +588,7 @@ async def get_system_analytics(
             )
             .where(
                 and_(
-                    Queue.status == QueueStatus.SERVED,
+                    Queue.status == QueueStatus.COMPLETED,
                     Queue.created_at >= start_date
                 )
             )
@@ -515,12 +599,13 @@ async def get_system_analytics(
         # Most active doctors
         doctor_activity = await db.execute(
             select(
-                Doctor.full_name,
+                column("full_name"),
                 func.count(Appointment.id).label('appointment_count')
             )
+            .select_from(Doctor)
             .join(Appointment, Doctor.id == Appointment.doctor_id)
             .where(Appointment.created_at >= start_date)
-            .group_by(Doctor.id, Doctor.full_name)
+            .group_by(Doctor.id, column("full_name"))
             .order_by(desc(func.count(Appointment.id)))
             .limit(10)
         )
@@ -528,11 +613,12 @@ async def get_system_analytics(
         # Urgency level distribution
         urgency_distribution = await db.execute(
             select(
-                Appointment.urgency_level,
+                column("urgency"),
                 func.count(Appointment.id).label('count')
             )
+            .select_from(Appointment)
             .where(Appointment.created_at >= start_date)
-            .group_by(Appointment.urgency_level)
+            .group_by(column("urgency"))
         )
         
         return SystemAnalytics(
@@ -549,7 +635,7 @@ async def get_system_analytics(
                 for row in doctor_activity.all()
             ],
             urgency_distribution=[
-                {"urgency_level": row.urgency_level.value, "count": row.count}
+                {"urgency_level": row.urgency.value if hasattr(row.urgency, 'value') else row.urgency, "count": row.count}
                 for row in urgency_distribution.all()
             ]
         )
@@ -558,6 +644,66 @@ async def get_system_analytics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch system analytics"
+        )
+
+@router.get("/analytics/queue", response_model=Dict[str, Any])
+async def get_admin_queue_analytics(
+    days: int = 30,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get queue analytics for admin dashboard"""
+    try:
+        return await get_queue_analytics(db, days)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch queue analytics: {str(e)}"
+        )
+
+@router.get("/analytics/appointments", response_model=Dict[str, Any])
+async def get_admin_appointment_analytics(
+    days: int = 30,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get appointment analytics for admin dashboard"""
+    try:
+        return await get_appointment_analytics(db, days)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch appointment analytics: {str(e)}"
+        )
+
+@router.get("/analytics/doctors", response_model=Dict[str, Any])
+async def get_admin_doctor_analytics(
+    days: int = 30,
+    doctor_id: Optional[UUID] = None,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get doctor analytics for admin dashboard"""
+    try:
+        return await get_doctor_analytics(db, days, doctor_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch doctor analytics: {str(e)}"
+        )
+
+@router.get("/analytics/system", response_model=Dict[str, Any])
+async def get_admin_system_overview(
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get system overview for admin dashboard"""
+    try:
+        return await get_system_overview(db)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch system overview: {str(e)}"
         )
 
 @router.get("/me", response_model=UserSchema)
@@ -638,18 +784,18 @@ async def send_notification(
             raise ValueError("Patient ID, recipient, and message are required")
         
         # Create notification directly
-        notification = Notification(
+        stmt = insert(Notification).values(
             patient_id=patient_id,
             type=NotificationType(notification_type),
             recipient=recipient,
             message=message,
             subject=subject,
             status="pending"
-        )
+        ).returning(Notification)
         
-        db.add(notification)
+        result = await db.execute(stmt)
+        notification = result.scalar_one()
         await db.commit()
-        await db.refresh(notification)
         
         # Update status to sent
         notification.status = "sent"

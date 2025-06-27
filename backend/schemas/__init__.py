@@ -157,6 +157,8 @@ class DoctorBase(BaseModel):
     department: Optional[str] = None
     consultation_fee: Optional[int] = None
     is_available: bool = True
+    shift_start: Optional[str] = None
+    shift_end: Optional[str] = None
 
 
 class DoctorCreate(DoctorBase):
@@ -169,6 +171,8 @@ class DoctorUpdate(BaseModel):
     department: Optional[str] = None
     consultation_fee: Optional[int] = None
     is_available: Optional[bool] = None
+    shift_start: Optional[str] = None
+    shift_end: Optional[str] = None
 
 
 class Doctor(DoctorBase, BaseSchema):
@@ -581,3 +585,5 @@ class ConsultationFeedback(ConsultationFeedbackBase, BaseSchema):
 # Doctor Status Update schema
 class DoctorStatusUpdate(BaseModel):
     is_available: bool
+    shift_start: Optional[str] = None
+    shift_end: Optional[str] = None

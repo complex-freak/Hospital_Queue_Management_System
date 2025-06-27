@@ -37,7 +37,7 @@ def verify_token(token: str) -> Optional[str]:
     """Verify JWT token and return subject"""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
-        subject: str = payload.get("sub")
+        subject: Optional[str] = payload.get("sub")
         if subject is None:
             return None
         return subject

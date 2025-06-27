@@ -2,7 +2,7 @@ from typing import Optional, List, Tuple
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, insert
 from database import get_db
 from models import User, Patient, UserRole
 from api.core.security import verify_token, create_credentials_exception
@@ -96,24 +96,22 @@ async def log_audit_event(
     from models import AuditLog
     
     # Get client IP
-    client_ip = request.client.host
+    client_ip = request.client.host if request.client else "unknown"
     if "x-forwarded-for" in request.headers:
         client_ip = request.headers["x-forwarded-for"].split(",")[0].strip()
     
-    # Create audit log entry
-    audit_entry = AuditLog(
-        user_id=user_id,
-        user_type=user_type,
-        action=action,
-        resource=resource,
-        resource_id=resource_id,
-        details=details,
-        ip_address=client_ip,
-        user_agent=request.headers.get("user-agent", "")
-    )
-    
     try:
-        db.add(audit_entry)
+        await db.execute(select(1))  # Ensure connection is established
+        await db.execute(insert(AuditLog).values(
+            user_id=user_id,
+            user_type=user_type,
+            action=action,
+            resource=resource,
+            resource_id=resource_id,
+            details=details,
+            ip_address=client_ip,
+            user_agent=request.headers.get("user-agent", "")
+        ))
         await db.commit()
         logger.info(f"Audit log created: {action} on {resource} by {user_type}:{user_id}")
     except Exception as e:

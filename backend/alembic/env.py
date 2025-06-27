@@ -17,13 +17,14 @@ sys.path.append(os.path.dirname(BASE_DIR))
 
 # import models metadata
 from models import Base
+from sqlalchemy.ext.declarative import DeclarativeMeta
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
 # Set the database URL from environment variable
-config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL"))
+config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL", "postgresql+asyncpg://user:password@localhost/queue_db"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -31,7 +32,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # set target metadata for autogenerate
-target_metadata = Base.metadata
+target_metadata = Base.metadata  # type: ignore
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

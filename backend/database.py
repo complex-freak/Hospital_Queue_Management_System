@@ -4,6 +4,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import MetaData
 from api.core.config import settings
 import logging
+from typing import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -17,13 +18,11 @@ engine = create_async_engine(
 # Create async session maker
 AsyncSessionLocal = sessionmaker(
     engine, 
-    class_=AsyncSession, 
+    class_=AsyncSession,  # type: ignore
     expire_on_commit=False
 )
 
 # Base class for models
-Base = declarative_base()
-
 # Naming convention for constraints
 convention = {
     "ix": "ix_%(column_0_label)s",
@@ -33,12 +32,13 @@ convention = {
     "pk": "pk_%(table_name)s"
 }
 
-Base.metadata = MetaData(naming_convention=convention)
+# Base class for models
+Base = declarative_base(metadata=MetaData(naming_convention=convention))
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Database session dependency"""
-    async with AsyncSessionLocal() as session:
+    async with AsyncSessionLocal() as session:  # type: ignore
         try:
             yield session
         finally:
@@ -62,7 +62,7 @@ async def create_tables() -> None:
             logger.info("Creating database tables if they don't exist")
             # This will create tables that don't exist, but won't modify existing ones
             # For schema migrations, use Alembic instead
-            await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(Base.metadata.create_all)  # type: ignore
         logger.info("Database tables created successfully")
     except Exception as e:
         logger.error(f"Error creating database tables: {e}")

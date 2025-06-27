@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/use-auth-context';
-import { apiService } from '@/services/api';
+import { doctorService } from '@/services/api/doctor-service';
 import { toast } from '@/hooks/use-toast';
 import QueueTable from '../components/dashboard/QueueTable';
 import QueueSummary from '../components/dashboard/QueueSummary';
 import AvailabilityToggle from '../components/dashboard/AvailabilityToggle';
-import AppHeader from '@/features/shared/components/AppHeader';
+import AppHeader from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
 import { RefreshCw } from 'lucide-react';
@@ -17,11 +17,29 @@ const Dashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isAvailable, setIsAvailable] = useState(true);
+  const [doctorProfile, setDoctorProfile] = useState<any>(null);
+
+  // Fetch doctor profile on mount
+  useEffect(() => {
+    const fetchDoctorProfile = async () => {
+      try {
+        const response = await doctorService.getDoctorProfile();
+        if (response.success && response.data) {
+          setDoctorProfile(response.data);
+          setIsAvailable(response.data.isAvailable);
+        }
+      } catch (error) {
+        console.error('Error fetching doctor profile:', error);
+      }
+    };
+
+    fetchDoctorProfile();
+  }, []);
 
   const fetchQueue = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await apiService.getQueue();
+      const response = await doctorService.getDoctorQueue();
       
       if (response.success && response.data) {
         // If doctor is unavailable, don't show any patients
@@ -61,7 +79,7 @@ const Dashboard = () => {
 
   const handlePatientSeen = async (patientId: string) => {
     try {
-      await apiService.markPatientSeen(patientId);
+      await doctorService.markPatientSeen(patientId);
       // Remove the patient from the queue
       setPatients(patients.filter(patient => patient.id !== patientId));
       toast({
@@ -79,7 +97,7 @@ const Dashboard = () => {
 
   const handlePatientSkipped = async (patientId: string) => {
     try {
-      await apiService.skipPatient(patientId);
+      await doctorService.skipPatient(patientId);
       // Remove the patient from the queue for now
       // In a real app, you might move them elsewhere or flag them
       setPatients(patients.filter(patient => patient.id !== patientId));
@@ -98,6 +116,13 @@ const Dashboard = () => {
 
   const handleStatusChange = (available: boolean) => {
     setIsAvailable(available);
+    // If toggling to unavailable, clear the queue display
+    if (!available) {
+      setPatients([]);
+    } else {
+      // If toggling to available, refresh the queue
+      fetchQueue();
+    }
   };
 
   return (
@@ -111,7 +136,7 @@ const Dashboard = () => {
             <Button
               variant="outline"
               onClick={handleRefresh}
-              disabled={isRefreshing}
+              disabled={isRefreshing || !isAvailable}
               className="border-blue-300 text-blue-700 hover:bg-blue-50"
             >
               {isRefreshing ? (
@@ -130,6 +155,15 @@ const Dashboard = () => {
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-4">
           <div className="lg:col-span-3">
+            {!isAvailable ? (
+              <div className="bg-white p-8 rounded-lg shadow text-center">
+                <h3 className="text-xl font-medium text-gray-700 mb-2">You're Currently Unavailable</h3>
+                <p className="text-gray-500 mb-4">
+                  You won't receive new patients in your queue while you're unavailable.
+                  Use the toggle on the right to change your status when you're ready.
+                </p>
+              </div>
+            ) : (
             <QueueTable
               patients={patients}
               isLoading={isLoading}
@@ -137,6 +171,7 @@ const Dashboard = () => {
               onPatientSkipped={handlePatientSkipped}
               refreshQueue={handleRefresh}
             />
+            )}
           </div>
           <div className="lg:col-span-1">
             <AvailabilityToggle onStatusChange={handleStatusChange} />

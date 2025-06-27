@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, or_
+from sqlalchemy import select, and_, func, or_, insert, column
 from uuid import UUID
 from datetime import datetime, date, timedelta
 import asyncio
@@ -30,8 +30,8 @@ class QueueService:
         result = await db.execute(
             select(Queue).where(
                 and_(
-                    Queue.appointment_id == appointment_id,
-                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.IN_PROGRESS])
+                    column("appointment_id") == appointment_id,
+                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING])
                 )
             )
         )
@@ -42,8 +42,8 @@ class QueueService:
         # Get next queue number for the day
         today = date.today()
         result = await db.execute(
-            select(func.max(Queue.queue_number)).where(
-                func.date(Queue.created_at) == today
+            select(func.max(column("queue_number"))).select_from(Queue).where(
+                func.date(column("created_at")) == today
             )
         )
         max_queue_number = result.scalar() or 0
@@ -55,21 +55,23 @@ class QueueService:
         )
         
         # Create queue entry
-        queue_entry = Queue(
+        estimated_wait_time = await QueueService._calculate_estimated_wait_time(
+            db, doctor_id or appointment.doctor_id
+        )
+        
+        stmt = insert(Queue).values(
             appointment_id=appointment_id,
             patient_id=appointment.patient_id,
             doctor_id=doctor_id or appointment.doctor_id,
             queue_number=next_queue_number,
             priority_score=priority_score,
             status=QueueStatus.WAITING,
-            estimated_wait_time=await QueueService._calculate_estimated_wait_time(
-                db, doctor_id or appointment.doctor_id
-            )
-        )
+            estimated_wait_time=estimated_wait_time
+        ).returning(Queue)
         
-        db.add(queue_entry)
+        result = await db.execute(stmt)
+        queue_entry = result.scalar_one()
         await db.commit()
-        await db.refresh(queue_entry)
         
         return queue_entry
     
@@ -86,15 +88,13 @@ class QueueService:
         base_score = 100
         
         # Urgency level adjustment
-        if appointment.urgency_level == UrgencyLevel.EMERGENCY:
+        if appointment.urgency == UrgencyLevel.EMERGENCY:
             base_score += 1000
-        elif appointment.urgency_level == UrgencyLevel.URGENT:
+        elif appointment.urgency == UrgencyLevel.HIGH:
             base_score += 500
-        elif appointment.urgency_level == UrgencyLevel.HIGH:
-            base_score += 200
-        elif appointment.urgency_level == UrgencyLevel.NORMAL:
+        elif appointment.urgency == UrgencyLevel.NORMAL:
             base_score += 0
-        elif appointment.urgency_level == UrgencyLevel.LOW:
+        elif appointment.urgency == UrgencyLevel.LOW:
             base_score -= 100
         
         # Time-based adjustment (waiting time)
@@ -114,14 +114,14 @@ class QueueService:
         query = select(Queue).where(
             and_(
                 Queue.status == QueueStatus.WAITING,
-                func.date(Queue.created_at) == date.today()
+                func.date(column("created_at")) == date.today()
             )
         )
         
         if doctor_id:
-            query = query.where(Queue.doctor_id == doctor_id)
+            query = query.where(column("doctor_id") == doctor_id)
         
-        result = await db.execute(query.order_by(Queue.priority_score.desc()))
+        result = await db.execute(query.order_by(column("priority_score").desc()))
         waiting_queue = result.scalars().all()
         
         # Estimate 15 minutes per patient (configurable)
@@ -147,9 +147,9 @@ class QueueService:
         result = await db.execute(
             select(Queue).where(
                 and_(
-                    Queue.patient_id == patient_id,
-                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.IN_PROGRESS]),
-                    func.date(Queue.created_at) == date.today()
+                    column("patient_id") == patient_id,
+                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING]),
+                    func.date(column("created_at")) == date.today()
                 )
             )
         )
@@ -169,12 +169,12 @@ class QueueService:
         result = await db.execute(
             select(Queue).where(
                 and_(
-                    Queue.doctor_id == doctor_id,
-                    func.date(Queue.created_at) == target_date,
-                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.IN_PROGRESS])
+                    column("doctor_id") == doctor_id,
+                    func.date(column("created_at")) == target_date,
+                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING])
                 )
             )
-            .order_by(Queue.priority_score.desc(), Queue.created_at.asc())
+            .order_by(column("priority_score").desc(), column("created_at").asc())
             .offset(skip)
             .limit(limit)
         )
@@ -191,14 +191,14 @@ class QueueService:
         """Get all queue entries"""
         target_date = queue_date or date.today()
         
-        query = select(Queue).where(func.date(Queue.created_at) == target_date)
+        query = select(Queue).where(func.date(column("created_at")) == target_date)
         
         if status:
             query = query.where(Queue.status == status)
         else:
-            query = query.where(Queue.status.in_([QueueStatus.WAITING, QueueStatus.IN_PROGRESS]))
+            query = query.where(Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING]))
         
-        query = query.order_by(Queue.priority_score.desc(), Queue.created_at.asc()).offset(skip).limit(limit)
+        query = query.order_by(column("priority_score").desc(), column("created_at").asc()).offset(skip).limit(limit)
         
         result = await db.execute(query)
         return result.scalars().all()
@@ -223,7 +223,7 @@ class QueueService:
         if notes:
             queue_entry.notes = notes
         
-        if status == QueueStatus.IN_PROGRESS:
+        if status == QueueStatus.SERVING:
             queue_entry.served_at = datetime.utcnow()
         elif status == QueueStatus.COMPLETED:
             queue_entry.completed_at = datetime.utcnow()
@@ -245,12 +245,12 @@ class QueueService:
         result = await db.execute(
             select(Queue).where(
                 and_(
-                    Queue.doctor_id == doctor_id,
+                    column("doctor_id") == doctor_id,
                     Queue.status == QueueStatus.WAITING,
-                    func.date(Queue.created_at) == date.today()
+                    func.date(column("created_at")) == date.today()
                 )
             )
-            .order_by(Queue.priority_score.desc(), Queue.created_at.asc())
+            .order_by(column("priority_score").desc(), column("created_at").asc())
             .limit(1)
         )
         next_patient = result.scalar_one_or_none()
@@ -259,7 +259,7 @@ class QueueService:
             return None
         
         # Update status to in progress
-        next_patient.status = QueueStatus.IN_PROGRESS
+        next_patient.status = QueueStatus.SERVING
         next_patient.served_at = datetime.utcnow()
         next_patient.updated_at = datetime.utcnow()
         
@@ -283,10 +283,10 @@ class QueueService:
         if not queue_entry:
             raise ValueError("Queue entry not found")
         
-        if queue_entry.status != QueueStatus.IN_PROGRESS:
+        if queue_entry.status != QueueStatus.SERVING:
             raise ValueError("Can only skip patients currently in progress")
         
-        queue_entry.status = QueueStatus.SKIPPED
+        queue_entry.status = QueueStatus.NO_SHOW
         queue_entry.notes = f"{queue_entry.notes or ''}\nSkipped: {reason}"
         queue_entry.updated_at = datetime.utcnow()
         
@@ -337,10 +337,10 @@ class QueueService:
         target_date = queue_date or date.today()
         
         # Base query
-        base_query = select(Queue).where(func.date(Queue.created_at) == target_date)
+        base_query = select(Queue).where(func.date(column("created_at")) == target_date)
         
         if doctor_id:
-            base_query = base_query.where(Queue.doctor_id == doctor_id)
+            base_query = base_query.where(column("doctor_id") == doctor_id)
         
         # Total patients
         result = await db.execute(
@@ -370,9 +370,9 @@ class QueueService:
             'date': target_date.isoformat(),
             'total_patients': total_patients,
             'waiting': status_counts.get(QueueStatus.WAITING, 0),
-            'in_progress': status_counts.get(QueueStatus.IN_PROGRESS, 0),
+            'in_progress': status_counts.get(QueueStatus.SERVING, 0),
             'completed': status_counts.get(QueueStatus.COMPLETED, 0),
-            'skipped': status_counts.get(QueueStatus.SKIPPED, 0),
+            'skipped': status_counts.get(QueueStatus.NO_SHOW, 0),
             'cancelled': status_counts.get(QueueStatus.CANCELLED, 0),
             'average_wait_time_minutes': round(avg_wait_time, 2)
         }

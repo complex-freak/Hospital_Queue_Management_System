@@ -1,7 +1,7 @@
-from typing import Optional
+from typing import Optional, Dict
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, insert
 from uuid import UUID
 
 from models import Patient, User, Doctor
@@ -26,7 +26,18 @@ class AuthService:
         hashed_password = get_password_hash(patient_data.password)
         
         # Create patient
-        patient = Patient(
+        patient = Patient()
+        patient.phone_number = patient_data.phone_number
+        patient.password_hash = hashed_password
+        patient.first_name = patient_data.first_name
+        patient.last_name = patient_data.last_name
+        patient.email = patient_data.email
+        patient.date_of_birth = patient_data.date_of_birth
+        patient.gender = patient_data.gender
+        patient.address = patient_data.address
+        patient.emergency_contact = patient_data.emergency_contact
+        
+        await db.execute(insert(Patient).values(
             phone_number=patient_data.phone_number,
             password_hash=hashed_password,
             first_name=patient_data.first_name,
@@ -36,11 +47,14 @@ class AuthService:
             gender=patient_data.gender,
             address=patient_data.address,
             emergency_contact=patient_data.emergency_contact
-        )
-        
-        db.add(patient)
+        ).returning(Patient))
         await db.commit()
-        await db.refresh(patient)
+        
+        # Get the newly created patient
+        result = await db.execute(
+            select(Patient).where(Patient.phone_number == patient_data.phone_number)
+        )
+        patient = result.scalar_one_or_none()
         
         return patient
     
@@ -58,14 +72,21 @@ class AuthService:
         return patient
     
     @staticmethod
-    async def authenticate_user(db: AsyncSession, username: str, password: str) -> Optional[User]:
-        """Authenticate user (staff/admin/doctor) by username and password"""
+    async def authenticate_user(
+        db: AsyncSession,
+        username: str,
+        password: str
+    ) -> Optional[User]:
+        """Authenticate user login"""
         result = await db.execute(
-            select(User).where(User.username == username and User.is_active == True)
+            select(User).where(User.username == username)
         )
         user = result.scalar_one_or_none()
         
-        if not user or not verify_password(password, user.password_hash):
+        if not user:
+            return None
+        
+        if not verify_password(password, user.password_hash):
             return None
         
         return user
@@ -86,7 +107,17 @@ class AuthService:
         hashed_password = get_password_hash(user_data.password)
         
         # Create user with timestamps
-        user = User(
+        user = User()
+        user.username = user_data.username
+        user.password_hash = hashed_password
+        user.email = user_data.email
+        user.first_name = user_data.first_name
+        user.last_name = user_data.last_name
+        user.role = user_data.role
+        user.created_at = datetime.utcnow()
+        user.updated_at = datetime.utcnow()
+        
+        await db.execute(insert(User).values(
             username=user_data.username,
             password_hash=hashed_password,
             email=user_data.email,
@@ -95,11 +126,14 @@ class AuthService:
             role=user_data.role,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow()
-        )
-        
-        db.add(user)
+        ).returning(User))
         await db.commit()
-        await db.refresh(user)
+        
+        # Get the newly created user
+        result = await db.execute(
+            select(User).where(User.username == user_data.username)
+        )
+        user = result.scalar_one_or_none()
         
         return user
     
@@ -123,8 +157,6 @@ class AuthService:
             user.last_name = user_update.last_name
         if user_update.is_active is not None:
             user.is_active = user_update.is_active
-        if user_update.password is not None:
-            user.password_hash = get_password_hash(user_update.password)
         
         # Always update the timestamp
         user.updated_at = datetime.utcnow()
@@ -135,33 +167,56 @@ class AuthService:
         return user
     
     @staticmethod
-    async def create_doctor(db: AsyncSession, doctor_data: DoctorCreate) -> Doctor:
+    async def create_doctor(db: AsyncSession, doctor_data: Dict) -> Doctor:
         """Create a new doctor with associated user account"""
+        from models import UserRole
+        from schemas import UserCreate
+        
         # First create the user account
         user_data = UserCreate(
-            username=doctor_data.username,
-            password=doctor_data.password,
-            email=doctor_data.email,
-            first_name=doctor_data.first_name,
-            last_name=doctor_data.last_name,
-            role="doctor"
+            username=doctor_data.get("username", ""),
+            password=doctor_data.get("password", ""),
+            email=doctor_data.get("email"),
+            first_name=doctor_data.get("first_name", ""),
+            last_name=doctor_data.get("last_name", ""),
+            role=UserRole.DOCTOR
         )
         
-        user = await AuthService.create_user(db, user_data)
+        # Create user with timestamps
+        await db.execute(insert(User).values(
+            username=user_data.username,
+            password_hash=get_password_hash(user_data.password),
+            email=user_data.email,
+            first_name=user_data.first_name,
+            last_name=user_data.last_name,
+            role=user_data.role,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        ))
+        await db.commit()
+        
+        # Get the newly created user
+        result = await db.execute(
+            select(User).where(User.username == user_data.username)
+        )
+        user = result.scalar_one_or_none()
         
         # Then create the doctor profile
-        doctor = Doctor(
+        await db.execute(insert(Doctor).values(
             user_id=user.id,
-            specialization=doctor_data.specialization,
-            license_number=doctor_data.license_number,
-            department=doctor_data.department,
-            consultation_fee=doctor_data.consultation_fee,
-            is_available=doctor_data.is_available if doctor_data.is_available is not None else True
-        )
-        
-        db.add(doctor)
+            specialization=doctor_data.get("specialization"),
+            license_number=doctor_data.get("license_number"),
+            department=doctor_data.get("department"),
+            consultation_fee=doctor_data.get("consultation_fee"),
+            is_available=doctor_data.get("is_available") if doctor_data.get("is_available") is not None else True
+        ))
         await db.commit()
-        await db.refresh(doctor)
+        
+        # Get the newly created doctor
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == user.id)
+        )
+        doctor = result.scalar_one_or_none()
         
         return doctor
     
@@ -187,6 +242,10 @@ class AuthService:
             doctor.consultation_fee = doctor_update.consultation_fee
         if doctor_update.is_available is not None:
             doctor.is_available = doctor_update.is_available
+        if doctor_update.shift_start is not None:
+            doctor.shift_start = doctor_update.shift_start
+        if doctor_update.shift_end is not None:
+            doctor.shift_end = doctor_update.shift_end
         
         await db.commit()
         await db.refresh(doctor)

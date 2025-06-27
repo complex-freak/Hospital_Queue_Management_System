@@ -179,7 +179,7 @@ class SyncService:
                             if k not in ['id', 'created_at', 'patient_id']
                         })
                         updated_appointment = await AppointmentService.update_appointment(
-                            db, UUID(appointment_id), appointment_update, user_id
+                            db, UUID(appointment_id), appointment_update
                         )
                 else:
                     # Create new appointment
@@ -235,9 +235,12 @@ class SyncService:
                             k: v for k, v in queue_data.items() 
                             if k not in ['id', 'created_at', 'appointment_id']
                         })
-                        updated_queue = await QueueService.update_queue_item(
-                            db, UUID(queue_id), queue_update, user_id
-                        )
+                        
+                        # Check if status is provided, otherwise use a default
+                        if queue_update.status is not None:
+                            updated_queue = await QueueService.update_queue_status(
+                                db, UUID(queue_id), queue_update.status, getattr(queue_update, "notes", None)
+                            )
                 
                 results['processed'] += 1
                 
@@ -408,14 +411,17 @@ class SyncService:
                 elif conflict_type == 'appointment':
                     appointment_update = AppointmentUpdate(**resolution_data['client_data'])
                     await AppointmentService.update_appointment(
-                        db, UUID(conflict_id), appointment_update, user_id
+                        db, UUID(conflict_id), appointment_update
                     )
                 
                 elif conflict_type == 'queue':
                     queue_update = QueueUpdate(**resolution_data['client_data'])
-                    await QueueService.update_queue_item(
-                        db, UUID(conflict_id), queue_update, user_id
-                    )
+                    
+                    # Check if status is provided, otherwise skip update
+                    if queue_update.status is not None:
+                        await QueueService.update_queue_status(
+                            db, UUID(conflict_id), queue_update.status, getattr(queue_update, "notes", None)
+                        )
                 
                 return {'resolved': True, 'action': 'applied_client_version'}
             

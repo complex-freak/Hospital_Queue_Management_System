@@ -1,6 +1,7 @@
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, insert, delete
+from datetime import timedelta
 from uuid import UUID
 from datetime import datetime, date
 import json
@@ -17,8 +18,8 @@ class AuditService:
     @staticmethod
     async def log_event(
         db: AsyncSession,
-        action: AuditAction,
-        resource: AuditResource,
+        action: str,
+        resource: str,
         resource_id: Optional[UUID] = None,
         user_id: Optional[UUID] = None,
         patient_id: Optional[UUID] = None,
@@ -27,34 +28,33 @@ class AuditService:
         user_agent: Optional[str] = None,
         success: bool = True,
         error_message: Optional[str] = None
-    ) -> AuditLog:
+    ) -> Any:
         """Log an audit event"""
         try:
-            audit_log = AuditLog(
-                action=action,
-                resource=resource,
-                resource_id=resource_id,
-                user_id=user_id,
-                patient_id=patient_id,
-                details=details or {},
-                ip_address=ip_address,
-                user_agent=user_agent,
-                success=success,
-                error_message=error_message
-            )
+            audit_values = {
+                "action": action,
+                "resource": resource,
+                "resource_id": resource_id,
+                "user_id": user_id,
+                "user_type": "user" if user_id else "patient" if patient_id else "system",
+                "details": json.dumps(details or {}),
+                "ip_address": ip_address,
+                "user_agent": user_agent
+            }
             
-            db.add(audit_log)
+            result = await db.execute(insert(AuditLog).values(**audit_values).returning(AuditLog))
+            audit_log = result.scalar_one()
             await db.commit()
-            await db.refresh(audit_log)
             
-            logger.info(f"Audit event logged: {action.value} on {resource.value} by user {user_id}")
+            logger.info(f"Audit event logged: {action} on {resource} by user {user_id}")
             
             return audit_log
             
         except Exception as e:
             logger.error(f"Failed to log audit event: {e}")
             # Don't raise exception to avoid breaking the main operation
-            return None
+            # Return empty dict as AuditLog
+            return {}
     
     @staticmethod
     async def log_login_attempt(
@@ -243,7 +243,7 @@ class AuditService:
         """Log security events"""
         await AuditService.log_event(
             db=db,
-            action=AuditAction.SECURITY_EVENT,
+            action="SECURITY_EVENT",
             resource=AuditResource.SYSTEM,
             user_id=user_id,
             details={
@@ -268,7 +268,7 @@ class AuditService:
         """Log system events"""
         await AuditService.log_event(
             db=db,
-            action=AuditAction.SYSTEM_EVENT,
+            action="SYSTEM_EVENT",
             resource=AuditResource.SYSTEM,
             details={
                 'event_type': event_type,
@@ -300,7 +300,8 @@ class AuditService:
         if user_id:
             conditions.append(AuditLog.user_id == user_id)
         if patient_id:
-            conditions.append(AuditLog.patient_id == patient_id)
+            conditions.append(AuditLog.user_id == patient_id)
+            conditions.append(AuditLog.user_type == "patient")
         if resource:
             conditions.append(AuditLog.resource == resource)
         if action:
@@ -309,8 +310,7 @@ class AuditService:
             conditions.append(AuditLog.created_at >= start_date)
         if end_date:
             conditions.append(AuditLog.created_at <= end_date)
-        if success is not None:
-            conditions.append(AuditLog.success == success)
+        # Success field not in model, so we skip this filter
         
         if conditions:
             query = query.where(and_(*conditions))
@@ -360,7 +360,7 @@ class AuditService:
         # Success rate
         success_result = await db.execute(
             select(func.count(AuditLog.id))
-            .select_from(query.where(AuditLog.success == True).subquery())
+            .select_from(query.subquery())
         )
         successful_activities = success_result.scalar() or 0
         
@@ -393,7 +393,7 @@ class AuditService:
         limit: int = 100
     ) -> List[AuditLog]:
         """Get security events"""
-        query = select(AuditLog).where(AuditLog.action == AuditAction.SECURITY_EVENT)
+        query = select(AuditLog).where(AuditLog.action == "SECURITY_EVENT")
         
         conditions = []
         
@@ -421,7 +421,7 @@ class AuditService:
         limit: int = 100
     ) -> List[AuditLog]:
         """Get failed operations"""
-        query = select(AuditLog).where(AuditLog.success == False)
+        query = select(AuditLog).where(AuditLog.details.like('%"error"%'))
         
         if start_date:
             query = query.where(AuditLog.created_at >= start_date)

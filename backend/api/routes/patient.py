@@ -2,7 +2,7 @@ from typing import Optional
 from datetime import timedelta, datetime
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, insert
 from pydantic import BaseModel, Field
 from uuid import UUID
 import logging
@@ -358,7 +358,7 @@ async def get_appointment_details(
         # get the current queue status
         if include_queue_status and appointment.status == "WAITING":
             try:
-                queue_status = await QueueService.get_queue_status(db, appointment_id)
+                queue_status = await QueueService.get_queue_status(db, UUID(appointment_id))
                 # We'll return this as part of the response in the schema
                 appointment.queue_position = queue_status.queue_position if queue_status else None
                 appointment.estimated_wait_time = queue_status.estimated_wait_time if queue_status else None
@@ -624,15 +624,14 @@ async def register_device_token(
             logging.info(f"Updated device token for patient {current_patient.id}")
         else:
             # Create new token record with all required fields
-            new_token = DeviceToken(
-                id=uuid.uuid4(),  # Auto-generate UUID for id
-                patient_id=current_patient.id,
-                token=token,
-                device_type=device_type,
-                is_active=True,
-                created_at=datetime.utcnow()
-            )
-            db.add(new_token)
+            new_token_values = {
+                "patient_id": current_patient.id,
+                "token": token,
+                "device_type": device_type,
+                "is_active": True,
+                "created_at": datetime.utcnow()
+            }
+            await db.execute(insert(DeviceToken).values(**new_token_values))
             await db.commit()
             
             # Log success
@@ -668,14 +667,19 @@ async def get_patient_settings(
     
     if not settings:
         # Create default settings
-        settings = PatientSettings(
-            patient_id=current_patient.id,
-            language="en",
-            notifications_enabled=True
-        )
-        db.add(settings)
+        settings_values = {
+            "patient_id": current_patient.id,
+            "language": "en",
+            "notifications_enabled": True
+        }
+        await db.execute(insert(PatientSettings).values(**settings_values))
         await db.commit()
-        await db.refresh(settings)
+        
+        # Get the newly created settings
+        result = await db.execute(
+            select(PatientSettings).where(PatientSettings.patient_id == current_patient.id)
+        )
+        settings = result.scalar_one_or_none()
     
     return settings
 
@@ -695,22 +699,30 @@ async def update_patient_settings(
     
     if not settings:
         # Create settings with provided data
-        settings = PatientSettings(
-            patient_id=current_patient.id,
-            language=settings_data.language or "en",
-            notifications_enabled=settings_data.notifications_enabled 
+        settings_values = {
+            "patient_id": current_patient.id,
+            "language": settings_data.language or "en",
+            "notifications_enabled": settings_data.notifications_enabled 
                 if settings_data.notifications_enabled is not None else True
+        }
+        await db.execute(insert(PatientSettings).values(**settings_values))
+        await db.commit()
+        
+        # Get the newly created settings
+        result = await db.execute(
+            select(PatientSettings).where(PatientSettings.patient_id == current_patient.id)
         )
-        db.add(settings)
+        settings = result.scalar_one_or_none()
     else:
         # Update existing settings
         if settings_data.language is not None:
             settings.language = settings_data.language
         if settings_data.notifications_enabled is not None:
             settings.notifications_enabled = settings_data.notifications_enabled
+        
+        await db.commit()
+        await db.refresh(settings)
     
-    await db.commit()
-    await db.refresh(settings)
     return settings
 
 
@@ -731,19 +743,18 @@ async def create_appointment(
         print(f"Creating appointment with data: {appointment_data}")
         
         # Create the appointment - use enum value WAITING
-        new_appointment = Appointment(
-            patient_id=current_patient.id,
-            appointment_date=appointment_date,
-            notes=appointment_data.notes,
-            reason=appointment_data.reason,
-            urgency=appointment_data.urgency,
-            status="WAITING", # Use the correct enum value
-            created_at=datetime.now()  # Add current datetime for created_at field
-        )
+        appointment_values = {
+            "patient_id": current_patient.id,
+            "appointment_date": appointment_date,
+            "reason": appointment_data.reason,
+            "urgency": appointment_data.urgency,
+            "status": "WAITING",
+            "created_at": datetime.now()
+        }
         
-        db.add(new_appointment)
+        result = await db.execute(insert(Appointment).values(**appointment_values).returning(Appointment))
+        new_appointment = result.scalar_one()
         await db.commit()
-        await db.refresh(new_appointment)
         
         # Log audit event
         background_tasks.add_task(

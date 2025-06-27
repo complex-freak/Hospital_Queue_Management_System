@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func, insert
 from uuid import UUID
 from datetime import datetime
 import asyncio
@@ -9,18 +9,18 @@ from fastapi import BackgroundTasks
 
 # Third-party imports (would need to be installed)
 try:
-    from twilio.rest import Client as TwilioClient
-    from twilio.base.exceptions import TwilioException
+    from twilio.rest import Client as TwilioClient  # type: ignore
+    from twilio.base.exceptions import TwilioException  # type: ignore
 except ImportError:
     TwilioClient = None
     TwilioException = Exception
 
 try:
-    from pyfcm import FCMNotification
+    from pyfcm import FCMNotification  # type: ignore
 except ImportError:
     FCMNotification = None
 
-from models import Notification, Patient, Queue, Doctor, NotificationType, NotificationStatus
+from models import Notification, Patient, Queue, Doctor, NotificationType
 from schemas import NotificationCreate
 from api.core.config import settings
 
@@ -30,21 +30,28 @@ logger = logging.getLogger(__name__)
 class NotificationService:
     def __init__(self):
         # Initialize Twilio client
-        if TwilioClient and settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN:
+        if TwilioClient and getattr(settings, "TWILIO_ACCOUNT_SID", None) and getattr(settings, "TWILIO_AUTH_TOKEN", None):
             self.twilio_client = TwilioClient(
-                settings.TWILIO_ACCOUNT_SID,
-                settings.TWILIO_AUTH_TOKEN
+                getattr(settings, "TWILIO_ACCOUNT_SID", ""),
+                getattr(settings, "TWILIO_AUTH_TOKEN", "")
             )
         else:
             self.twilio_client = None
             logger.warning("Twilio not configured or twilio package not installed")
         
         # Initialize FCM client
-        if FCMNotification and settings.FCM_SERVER_KEY:
-            self.fcm_client = FCMNotification(api_key=settings.FCM_SERVER_KEY)
+        if FCMNotification and getattr(settings, "FIREBASE_SERVER_KEY", None):
+            self.fcm_client = FCMNotification(api_key=getattr(settings, "FIREBASE_SERVER_KEY", ""))
         else:
             self.fcm_client = None
             logger.warning("FCM not configured or pyfcm package not installed")
+        
+        # Log settings status
+        if settings.SMS_ENABLED and not self.twilio_client:
+            logger.warning("SMS_ENABLED=True but Twilio client not initialized")
+            
+        if settings.PUSH_ENABLED and not self.fcm_client:
+            logger.warning("PUSH_ENABLED=True but FCM client not initialized")
     
     async def create_notification(
         self,
@@ -52,20 +59,20 @@ class NotificationService:
         notification_data: NotificationCreate
     ) -> Notification:
         """Create a notification record in database"""
-        notification = Notification(
-            patient_id=notification_data.patient_id,
-            queue_id=notification_data.queue_id,
-            notification_type=notification_data.notification_type,
-            title=notification_data.title,
-            message=notification_data.message,
-            channel=notification_data.channel,
-            status=NotificationStatus.PENDING,
-            metadata=notification_data.metadata or {}
-        )
+        notification_values = {
+            "patient_id": notification_data.patient_id,
+            "queue_id": getattr(notification_data, "queue_id", None),
+            "notification_type": getattr(notification_data, "notification_type", None),
+            "title": getattr(notification_data, "title", None),
+            "message": notification_data.message,
+            "channel": getattr(notification_data, "channel", "sms"),
+            "status": "PENDING",
+            "metadata": getattr(notification_data, "metadata", {})
+        }
         
-        db.add(notification)
+        result = await db.execute(insert(Notification).values(**notification_values).returning(Notification))
+        notification = result.scalar_one()
         await db.commit()
-        await db.refresh(notification)
         
         return notification
     
@@ -91,7 +98,7 @@ class NotificationService:
                 
                 message_obj = self.twilio_client.messages.create(
                     body=message,
-                    from_=settings.TWILIO_PHONE_NUMBER,
+                    from_=getattr(settings, "TWILIO_PHONE_NUMBER", ""),
                     to=phone_number
                 )
                 
@@ -141,7 +148,7 @@ class NotificationService:
             notification = result.scalar_one_or_none()
             
             if notification:
-                notification.status = NotificationStatus.SENT if success else NotificationStatus.FAILED
+                notification.status = "SENT" if success else "FAILED"
                 notification.sent_at = datetime.utcnow() if success else None
                 notification.error_message = error_message
                 notification.updated_at = datetime.utcnow()
@@ -173,15 +180,12 @@ class NotificationService:
             
             # Create notification record
             notification_data = NotificationCreate(
-                patient_id=patient_id,
-                notification_type=NotificationType.APPOINTMENT_CONFIRMATION,
-                title="Appointment Confirmed",
+                type=NotificationType.SMS,
+                recipient=patient.phone_number,
                 message=f"Hello {patient.first_name}, your appointment has been confirmed. Your queue number is {queue_number}.",
-                channel="sms",
-                metadata={
-                    'appointment_id': str(appointment_id),
-                    'queue_number': queue_number
-                }
+                subject="Appointment Confirmed",
+                patient_id=patient_id,
+                reference_id=appointment_id
             )
             
             notification = await self.create_notification(db, notification_data)
@@ -218,15 +222,11 @@ class NotificationService:
             
             # Create notification record
             notification_data = NotificationCreate(
-                patient_id=patient_id,
-                notification_type=NotificationType.QUEUE_UPDATE,
-                title="Queue Position Update",
+                type=NotificationType.SMS,
+                recipient=patient.phone_number,
                 message=f"Hello {patient.first_name}, you are number {queue_position} in queue. Estimated wait time: {estimated_wait_time} minutes.",
-                channel="sms",
-                metadata={
-                    'queue_position': queue_position,
-                    'estimated_wait_time': estimated_wait_time
-                }
+                subject="Queue Position Update",
+                patient_id=patient_id
             )
             
             notification = await self.create_notification(db, notification_data)
@@ -265,15 +265,11 @@ class NotificationService:
             
             # Create notification record
             notification_data = NotificationCreate(
-                patient_id=patient_id,
-                notification_type=NotificationType.YOUR_TURN,
-                title="It's Your Turn!",
+                type=NotificationType.SMS,
+                recipient=patient.phone_number,
                 message=f"Hello {patient.first_name}, it's now your turn to see Dr. {doctor_name}{room_info}. Please proceed immediately.",
-                channel="sms",
-                metadata={
-                    'doctor_name': doctor_name,
-                    'room_number': room_number
-                }
+                subject="It's Your Turn!",
+                patient_id=patient_id
             )
             
             notification = await self.create_notification(db, notification_data)
@@ -287,10 +283,10 @@ class NotificationService:
             )
             
             # Send push notification if FCM token available
-            if patient.fcm_token:
+            if hasattr(patient, 'fcm_token') and patient.fcm_token:
                 await self.send_push_notification(
                     fcm_token=patient.fcm_token,
-                    title=notification.title,
+                    title="It's Your Turn!",
                     message=notification.message,
                     data={
                         'type': 'your_turn',
@@ -324,14 +320,11 @@ class NotificationService:
             
             # Create notification record
             notification_data = NotificationCreate(
-                patient_id=patient_id,
-                notification_type=NotificationType.REMINDER,
-                title="Appointment Reminder",
+                type=NotificationType.SMS,
+                recipient=patient.phone_number,
                 message=f"Hello {patient.first_name}, your turn is coming up in approximately {minutes_remaining} minutes. Please be ready.",
-                channel="sms",
-                metadata={
-                    'minutes_remaining': minutes_remaining
-                }
+                subject="Appointment Reminder",
+                patient_id=patient_id
             )
             
             notification = await self.create_notification(db, notification_data)
@@ -369,14 +362,11 @@ class NotificationService:
             
             # Create notification record
             notification_data = NotificationCreate(
-                patient_id=patient_id,
-                notification_type=NotificationType.APPOINTMENT_CANCELLED,
-                title="Appointment Cancelled",
+                type=NotificationType.SMS,
+                recipient=patient.phone_number,
                 message=f"Hello {patient.first_name}, your appointment has been cancelled.{reason_text} Please contact us to reschedule.",
-                channel="sms",
-                metadata={
-                    'reason': reason
-                }
+                subject="Appointment Cancelled",
+                patient_id=patient_id
             )
             
             notification = await self.create_notification(db, notification_data)
@@ -391,6 +381,62 @@ class NotificationService:
             
         except Exception as e:
             logger.error(f"Failed to send cancellation notification: {e}")
+    
+    async def send_push_notification(
+        self,
+        fcm_token: str,
+        title: str,
+        message: str,
+        data: Optional[Dict[str, Any]] = None,
+        notification_id: Optional[UUID] = None,
+        db: Optional[AsyncSession] = None
+    ) -> Dict[str, Any]:
+        """Send push notification via FCM"""
+        if not self.fcm_client:
+            result = {
+                'success': False,
+                'error': 'FCM not configured',
+                'message_id': None
+            }
+        else:
+            try:
+                response = self.fcm_client.notify_single_device(
+                    registration_id=fcm_token,
+                    message_title=title,
+                    message_body=message,
+                    data_message=data or {}
+                )
+                
+                if response.get('success'):
+                    result = {
+                        'success': True,
+                        'error': None,
+                        'message_id': response.get('message_id')
+                    }
+                    logger.info(f"Push notification sent successfully, ID: {response.get('message_id')}")
+                else:
+                    result = {
+                        'success': False,
+                        'error': response.get('failure', 'Unknown FCM error'),
+                        'message_id': None
+                    }
+                    logger.error(f"Failed to send push notification: {response}")
+                
+            except Exception as e:
+                result = {
+                    'success': False,
+                    'error': f"FCM error: {str(e)}",
+                    'message_id': None
+                }
+                logger.error(f"FCM error: {e}")
+        
+        # Update notification status in database
+        if notification_id and db:
+            await self._update_notification_status(
+                db, notification_id, result['success'], result.get('error')
+            )
+        
+        return result
     
     async def get_patient_notifications(
         self,
@@ -458,9 +504,9 @@ class NotificationService:
         
         # Notifications by type
         type_result = await db.execute(
-            select(Notification.notification_type, func.count(Notification.id))
+            select(Notification.type, func.count(Notification.id))
             .select_from(query.subquery())
-            .group_by(Notification.notification_type)
+            .group_by(Notification.type)
         )
         type_counts = dict(type_result.all())
         
@@ -469,67 +515,13 @@ class NotificationService:
             'status_breakdown': status_counts,
             'type_breakdown': type_counts,
             'success_rate': (
-                status_counts.get(NotificationStatus.SENT, 0) / total_notifications * 100
+                status_counts.get("SENT", 0) / total_notifications * 100
                 if total_notifications > 0 else 0
             )
         }
 
 
 # Global notification service instance
-notification_service = NotificationService() notification_id, result['success'], result.get('error')
-            )
-        
-        return result
-    
-    async def send_push_notification(
-        self,
-        fcm_token: str,
-        title: str,
-        message: str,
-        data: Optional[Dict[str, Any]] = None,
-        notification_id: Optional[UUID] = None,
-        db: Optional[AsyncSession] = None
-    ) -> Dict[str, Any]:
-        """Send push notification via FCM"""
-        if not self.fcm_client:
-            result = {
-                'success': False,
-                'error': 'FCM not configured',
-                'message_id': None
-            }
-        else:
-            try:
-                response = self.fcm_client.notify_single_device(
-                    registration_id=fcm_token,
-                    message_title=title,
-                    message_body=message,
-                    data_message=data or {}
-                )
-                
-                if response.get('success'):
-                    result = {
-                        'success': True,
-                        'error': None,
-                        'message_id': response.get('message_id')
-                    }
-                    logger.info(f"Push notification sent successfully, ID: {response.get('message_id')}")
-                else:
-                    result = {
-                        'success': False,
-                        'error': response.get('failure', 'Unknown FCM error'),
-                        'message_id': None
-                    }
-                    logger.error(f"Failed to send push notification: {response}")
-                
-            except Exception as e:
-                result = {
-                    'success': False,
-                    'error': f"FCM error: {str(e)}",
-                    'message_id': None
-                }
-                logger.error(f"FCM error: {e}")
-        
-        # Update notification status in database
-        if notification_id and db:
-            await self._update_notification_status(
-                db,
+notification_service = NotificationService()
+
+# The file has been fixed by removing the misplaced function

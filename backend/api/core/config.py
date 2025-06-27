@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List, Any
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 import secrets
@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = secrets.token_urlsafe(32)
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
+    API_VERSION: str = "1.0.0"
+    API_NAME: str = "Intelligent Queue Management System API"
     
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://user:password@localhost/queue_db"
@@ -19,12 +21,45 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_FROM_NUMBER: Optional[str] = None
+    SMS_ENABLED: bool = True
     
     # Firebase
     FIREBASE_CREDENTIALS_PATH: Optional[str] = None
+    FIREBASE_SERVER_KEY: Optional[str] = None
+    PUSH_ENABLED: bool = True
+    
+    # Email settings
+    EMAIL_ENABLED: bool = False
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: str = "noreply@yourapp.com"
+    
+    # Queue settings
+    DEFAULT_QUEUE_SIZE: int = 100
+    MAX_QUEUE_SIZE: int = 500
+    QUEUE_REFRESH_INTERVAL: int = 30
+    
+    # File upload settings
+    MAX_FILE_SIZE: int = 5242880  # 5MB 
+    ALLOWED_FILE_TYPES: List[str] = ["jpg", "jpeg", "png", "pdf"]
+    
+    # Rate limiting
+    RATE_LIMIT_REQUESTS: int = 100
+    RATE_LIMIT_WINDOW: int = 60
     
     # Environment
     ENVIRONMENT: str = "development"
+    DEBUG: bool = False
+    LOG_LEVEL: str = "INFO"
+    
+    # Server settings
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
+    
+    # Redis (optional)
+    REDIS_URL: Optional[str] = None
     
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod

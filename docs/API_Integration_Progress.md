@@ -148,29 +148,31 @@ After analyzing the current implementation, we found that the authentication sys
 - Expand doctor service in the frontend to include availability and status management
 - Create UI components for doctor availability and status management
 
----
+## ✅ Phase 5: Admin & Analytics (Backend)
 
-## ⏳ Phase 5: Admin & Analytics (Backend & Frontend)
-**Status: PARTIAL**
+**Status: COMPLETE**
 
 **Backend Implementation:**
-- Basic admin endpoints are implemented but need to be expanded
-- Need to implement or expand:
+
+- ✅ Expanded admin endpoints:
   - `/admin/users` (GET, POST) - For managing users
   - `/admin/users/{id}` (GET, PUT, DELETE) - For managing individual users
   - `/admin/analytics/queue` (GET) - For queue analytics
   - `/admin/analytics/appointments` (GET) - For appointment analytics
   - `/admin/analytics/doctors` (GET) - For doctor analytics
+  - `/admin/analytics/system` (GET) - For system overview analytics
 
-**Frontend Implementation:**
-- Admin service is partially implemented but needs expansion
-- Analytics visualization components need to be implemented
+- ✅ Implemented analytics data aggregation services:
+  - Queue analytics - Wait times, hourly distribution, status distribution
+  - Appointment analytics - Status distribution, no-show rates, consultation times
+  - Doctor analytics - Performance stats, availability, department distribution
+  - System overview - User stats, active queue stats, 24-hour stats
 
-**Required Changes:**
-- Expand admin endpoints in the backend
-- Implement analytics data aggregation services
-- Update admin service in the frontend
-- Create analytics visualization components
+**Next Steps:**
+
+- Create frontend components to visualize analytics data
+- Implement admin dashboard with real-time analytics
+- Add data export functionality for reports
 
 ---
 

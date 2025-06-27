@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Bell, Settings, LogOut, User, ChevronDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import QuickStatusToggle from '@/features/doctor/components/shared/QuickStatusToggle';
 
 interface AppHeaderProps {
   title?: string;
@@ -94,7 +95,11 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       </div>
       
       {user && (
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-3">
+          {user.role === 'doctor' && (
+            <QuickStatusToggle />
+          )}
+          
           <Button variant="ghost" size="icon" className="relative">
             <Bell className="h-5 w-5" />
             {notifications > 0 && (
@@ -111,10 +116,10 @@ const AppHeader: React.FC<AppHeaderProps> = ({
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center space-x-2">
                 <Avatar className="h-8 w-8">
-                  <AvatarFallback>{user ? getInitials(user.name) : 'U'}</AvatarFallback>
+                  <AvatarFallback>{user ? getInitials(user.fullName) : 'U'}</AvatarFallback>
                 </Avatar>
                 <div className="hidden md:block text-sm font-medium text-left">
-                  {user.name}
+                  {user.fullName}
                   <p className="text-xs text-muted-foreground">{user.role}</p>
                 </div>
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />

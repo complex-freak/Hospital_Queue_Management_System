@@ -1,7 +1,7 @@
 from typing import Optional, List
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_, desc, asc, update
+from sqlalchemy import select, func, and_, or_, desc, asc, update, insert
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 import logging
@@ -15,10 +15,18 @@ from schemas import (
     PatientCreate, PatientUpdate, UserCreate, UserUpdate, 
     AppointmentCreate, AppointmentUpdate, QueueCreate, QueueUpdate,
     NotificationCreate, QueueStatusResponse, DashboardStats,
-    NotificationBulkCreate, NotificationFromTemplate
+    NotificationBulkCreate, NotificationFromTemplate,
+    NotificationTemplateCreate, NotificationTemplateUpdate
 )
+from api.core.config import settings
 from api.core.security import get_password_hash, verify_password, create_access_token
 from .doctor_service import DoctorService
+
+# Import analytics services
+from services.queue_analytics import get_queue_analytics
+from services.appointment_analytics import get_appointment_analytics
+from services.doctor_analytics import get_doctor_analytics
+from services.system_analytics import get_system_overview
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +48,8 @@ class AuthService:
             raise ValueError("Phone number already registered")
         
         # Create patient
-        patient = Patient(
+        
+        await db.execute(insert(Patient).values(
             phone_number=patient_data.phone_number,
             password_hash=get_password_hash(patient_data.password),
             first_name=patient_data.first_name,
@@ -50,11 +59,14 @@ class AuthService:
             gender=patient_data.gender,
             address=patient_data.address,
             emergency_contact=patient_data.emergency_contact
-        )
-        
-        db.add(patient)
+        ))
         await db.commit()
-        await db.refresh(patient)
+        
+        # Get the newly created patient
+        result = await db.execute(
+            select(Patient).where(Patient.phone_number == patient_data.phone_number)
+        )
+        patient = result.scalar_one_or_none()
         
         logger.info(f"Patient registered: {patient.phone_number}")
         return patient
@@ -73,7 +85,8 @@ class AuthService:
             raise ValueError("Username already exists")
         
         # Create user with timestamps
-        user = User(
+        
+        await db.execute(insert(User).values(
             username=user_data.username,
             password_hash=get_password_hash(user_data.password),
             email=user_data.email,
@@ -82,11 +95,14 @@ class AuthService:
             role=user_data.role,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow()
-        )
-        
-        db.add(user)
+        ))
         await db.commit()
-        await db.refresh(user)
+        
+        # Get the newly created user
+        result = await db.execute(
+            select(User).where(User.username == user_data.username)
+        )
+        user = result.scalar_one_or_none()
         
         logger.info(f"User registered: {user.username} with role {user.role}")
         return user
@@ -193,15 +209,24 @@ class QueueService:
         )
         
         # Create queue entry
-        queue_entry = Queue(
+        
+        await db.execute(insert(Queue).values(
             appointment_id=appointment_id,
             queue_number=queue_number,
             priority_score=priority_score
-        )
-        
-        db.add(queue_entry)
+        ))
         await db.commit()
-        await db.refresh(queue_entry)
+        
+        # Get the newly created queue entry
+        result = await db.execute(
+            select(Queue).where(
+                and_(
+                    Queue.appointment_id == appointment_id,
+                    Queue.queue_number == queue_number
+                )
+            )
+        )
+        queue_entry = result.scalar_one_or_none()
         
         logger.info(f"Added to queue: #{queue_number} with priority {priority_score}")
         return queue_entry
@@ -235,7 +260,7 @@ class QueueService:
             select(Queue.queue_number)
             .where(
                 and_(
-                    Queue.status == QueueStatus.IN_PROGRESS,
+                    Queue.status == QueueStatus.SERVING,
                     func.date(Queue.created_at) == func.current_date()
                 )
             )
@@ -299,7 +324,7 @@ class QueueService:
             query = query.where(Queue.status == status)
         else:
             query = query.where(
-                Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED, QueueStatus.IN_PROGRESS])
+                Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED, QueueStatus.SERVING])
             )
         
         # Order by priority score (desc) then queue number (asc)
@@ -349,7 +374,7 @@ class QueueService:
         if not queue_entry:
             raise ValueError("Queue entry not found")
         
-        if queue_entry.status != QueueStatus.IN_PROGRESS:
+        if queue_entry.status != QueueStatus.SERVING:
             raise ValueError("Patient is not currently being served")
         
         queue_entry.status = QueueStatus.COMPLETED
@@ -378,7 +403,8 @@ class PatientService:
             raise ValueError("Phone number already registered")
         
         # Create patient
-        patient = Patient(
+        
+        await db.execute(insert(Patient).values(
             phone_number=patient_data.phone_number,
             password_hash=get_password_hash(patient_data.password),
             first_name=patient_data.first_name,
@@ -388,11 +414,14 @@ class PatientService:
             gender=patient_data.gender,
             address=patient_data.address,
             emergency_contact=patient_data.emergency_contact
-        )
-        
-        db.add(patient)
+        ))
         await db.commit()
-        await db.refresh(patient)
+        
+        # Get the newly created patient
+        result = await db.execute(
+            select(Patient).where(Patient.phone_number == patient_data.phone_number)
+        )
+        patient = result.scalar_one_or_none()
         
         logger.info(f"Patient created: {patient.phone_number}")
         return patient
@@ -459,10 +488,22 @@ class NotificationService:
         notification_data: NotificationCreate
     ) -> Notification:
         """Create notification record"""
-        notification = Notification(**notification_data.model_dump())
-        db.add(notification)
+        notification_values = notification_data.model_dump()
+        await db.execute(insert(Notification).values(**notification_values))
         await db.commit()
-        await db.refresh(notification)
+        
+        # Get the newly created notification
+        # Use a unique combination of fields to identify it
+        result = await db.execute(
+            select(Notification).where(
+                and_(
+                    Notification.recipient == notification_data.recipient,
+                    Notification.message == notification_data.message,
+                    Notification.created_at >= datetime.utcnow() - timedelta(minutes=1)
+                )
+            ).order_by(desc(Notification.created_at)).limit(1)
+        )
+        notification = result.scalar_one_or_none()
         return notification
     
     @staticmethod
@@ -473,8 +514,9 @@ class NotificationService:
         """Create multiple notification records"""
         notifications = []
         for notification_data in bulk_data.notifications:
-            notification = Notification(**notification_data.model_dump())
-            db.add(notification)
+            notification_values = notification_data.model_dump()
+            result = await db.execute(insert(Notification).values(**notification_values).returning(Notification))
+            notification = result.scalar_one()
             notifications.append(notification)
         
         await db.commit()
@@ -607,13 +649,12 @@ class NotificationService:
         created_by: Optional[UUID] = None
     ) -> NotificationTemplate:
         """Create a notification template"""
-        template = NotificationTemplate(
-            **template_data.model_dump(),
-            created_by=created_by
-        )
-        db.add(template)
+        template_values = template_data.model_dump()
+        template_values["created_by"] = created_by
+        
+        result = await db.execute(insert(NotificationTemplate).values(**template_values).returning(NotificationTemplate))
+        template = result.scalar_one()
         await db.commit()
-        await db.refresh(template)
         return template
     
     @staticmethod
@@ -790,9 +831,16 @@ class NotificationService:
         message: str
     ) -> bool:
         """Send SMS notification via Twilio"""
+        # Import at function level to avoid circular imports
+        from api.core.config import settings
+        
+        if not settings.SMS_ENABLED:
+            logger.info("SMS notifications are disabled")
+            return False
+            
         try:
-            from twilio.rest import Client
-            from api.core.config import settings
+            # Optional import - will be installed in production
+            from twilio.rest import Client  # type: ignore
             
             if not all([settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN, settings.TWILIO_FROM_NUMBER]):
                 logger.warning("Twilio credentials not configured")
@@ -806,7 +854,7 @@ class NotificationService:
                 to=phone_number
             )
             
-            logger.info(f"SMS sent to {phone_number}: {message.sid}")
+            logger.info(f"SMS sent to {phone_number}")
             return True
             
         except Exception as e:
@@ -820,10 +868,17 @@ class NotificationService:
         body: str
     ) -> bool:
         """Send push notification via Firebase"""
+        # Import at function level to avoid circular imports
+        from api.core.config import settings
+        
+        if not settings.PUSH_ENABLED:
+            logger.info("Push notifications are disabled")
+            return False
+            
         try:
-            import firebase_admin
-            from firebase_admin import messaging, credentials
-            from api.core.config import settings
+            # Optional imports - will be installed in production
+            import firebase_admin  # type: ignore
+            from firebase_admin import messaging, credentials  # type: ignore
             
             if not settings.FIREBASE_CREDENTIALS_PATH:
                 logger.warning("Firebase credentials not configured")
@@ -870,19 +925,20 @@ class NotificationService:
                 raise ValueError("User not found")
             
             # Create notification record
-            notification = Notification(
-                user_id=user_id,
-                type=NotificationType.SMS if notification_type == "sms" else NotificationType.PUSH,
-                recipient=user.email or str(user.id),
-                subject=title,
-                message=message,
-                status="pending",
-                reference_id=reference_id
-            )
             
-            db.add(notification)
+            notification_values = {
+                "user_id": user_id,
+                "type": NotificationType.SMS if notification_type == "sms" else NotificationType.PUSH,
+                "recipient": user.email or str(user.id),
+                "subject": title,
+                "message": message,
+                "status": "pending",
+                "reference_id": reference_id
+            }
+            
+            result = await db.execute(insert(Notification).values(**notification_values).returning(Notification))
+            notification = result.scalar_one()
             await db.commit()
-            await db.refresh(notification)
             
             # Attempt to send the notification
             # This is a simplified implementation - in a real app you might use a queue
@@ -994,6 +1050,36 @@ class NotificationService:
         notification.status = "sent" if success else "failed"
         notification.sent_at = datetime.utcnow() if success else None
         await db.commit()
+    
+    @staticmethod
+    async def notify_appointment_cancelled(
+        db: AsyncSession,
+        patient: Patient,
+        reason: Optional[str] = None
+    ):
+        """Notify patient about appointment cancellation"""
+        reason_text = f" Reason: {reason}" if reason else ""
+        message = f"Your appointment has been cancelled.{reason_text} Please contact us to reschedule."
+        
+        notification = await NotificationService.create_notification(
+            db,
+            NotificationCreate(
+                patient_id=patient.id,
+                type=NotificationType.SMS,
+                recipient=patient.phone_number,
+                message=message,
+                subject="Appointment Cancelled"
+            )
+        )
+        
+        success = await NotificationService.send_sms_notification(
+            patient.phone_number,
+            message
+        )
+        
+        notification.status = "sent" if success else "failed"
+        notification.sent_at = datetime.utcnow() if success else None
+        await db.commit()
 
 
 class AppointmentService:
@@ -1006,14 +1092,14 @@ class AppointmentService:
         created_by_id: Optional[UUID] = None
     ) -> Appointment:
         """Create new appointment"""
-        appointment = Appointment(
-            **appointment_data.model_dump(),
-            created_by=created_by_id
-        )
+        # Create appointment
         
-        db.add(appointment)
+        appointment_values = appointment_data.model_dump()
+        appointment_values["created_by"] = created_by_id
+        
+        result = await db.execute(insert(Appointment).values(**appointment_values).returning(Appointment))
+        appointment = result.scalar_one()
         await db.commit()
-        await db.refresh(appointment)
         
         # Add to queue
         queue_entry = await QueueService.add_to_queue(
@@ -1093,3 +1179,14 @@ class AppointmentService:
             current_queue_length=current_queue_length,
             average_wait_time=int(avg_wait_time) if avg_wait_time else None
         )
+
+# Export all services
+__all__ = [
+    'AuthService',
+    'PatientService',
+    'NotificationService',
+    'get_queue_analytics',
+    'get_appointment_analytics',
+    'get_doctor_analytics',
+    'get_system_overview'
+]
