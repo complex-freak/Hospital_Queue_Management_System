@@ -4,16 +4,16 @@
 
 This document outlines the API integration requirements between the frontend web application and the backend API for the Hospital Queue Management System. It identifies all available backend API endpoints, compares them with the frontend application's needs, and specifies the changes required for seamless integration.
 
+---
+
 ## 1. Authentication and User Management
 
 ### Web App Needs
-
 - Staff/receptionist authentication
 - Doctor authentication
 - Token validation and refresh
 
 ### Backend API Endpoints
-
 | Endpoint                                             | Method | Purpose                     | Required by Web App? | Status |
 | ---------------------------------------------------- | ------ | --------------------------- | -------------------- | ------ |
 | `/staff/login`                                      | POST   | Staff/receptionist login    | ✅ Yes               | ✅ Implemented |
@@ -23,7 +23,6 @@ This document outlines the API integration requirements between the frontend web
 | `/staff/logout`, `/doctor/logout`, `/admin/logout`  | POST   | Logout                      | ✅ Yes               | ✅ Implemented |
 
 ### Data Format Mapping
-
 - Map backend fields to frontend fields (e.g., `phone_number` → `phoneNumber`, `first_name`/`last_name` → `firstName`/`lastName`/`fullName`).
 - Ensure JWT and user profile structure matches frontend expectations.
 
@@ -31,12 +30,12 @@ This document outlines the API integration requirements between the frontend web
 - Authentication is fully implemented in both frontend and backend
 - JWT implementation is working correctly with proper token creation, verification, and password hashing
 - Role-based access control is properly implemented in the backend dependencies.py file
-- Frontend auth-service.ts handles token storage and refresh correctly
+
+---
 
 ## 2. Patient Management
 
 ### Web App Needs
-
 - Get all patients (queued and historical)
 - Register a new patient
 - Save/get draft registration
@@ -44,7 +43,6 @@ This document outlines the API integration requirements between the frontend web
 - Remove patient from queue
 
 ### Backend API Endpoints
-
 | Endpoint                            | Method | Purpose                      | Required by Web App? | Status |
 | ----------------------------------- | ------ | ---------------------------- | -------------------- | ------ |
 | `/staff/patients`                   | GET    | Get all patients             | ✅ Yes               | ✅ Implemented |
@@ -55,25 +53,23 @@ This document outlines the API integration requirements between the frontend web
 | `/staff/appointments/{id}/cancel`   | POST   | Remove patient from queue    | ✅ Yes               | ✅ Implemented |
 
 ### Data Format Mapping
-
 - Ensure all patient fields required by the frontend (priority, department, reason, vitalSigns, noteHistory) are present in backend responses or available via related endpoints.
 
 ### Implementation Notes
 - Patient management is fully implemented in both frontend and backend
 - Draft registration has localStorage fallback in the frontend for offline capability
 - Priority management is working correctly with proper queue reordering
-- The receptionist-service.ts in the frontend handles all patient management operations
+
+---
 
 ## 3. Queue Management
 
 ### Web App Needs
-
 - Queue operations (fetch, update, statistics)
 - Waiting time calculations
 - Priority management
 
 ### Backend API Endpoints
-
 | Endpoint                               | Method | Purpose                      | Required by Web App? | Status |
 | -------------------------------------- | ------ | ---------------------------- | -------------------- | ------ |
 | `/staff/queue`                         | GET    | Get queue status             | ✅ Yes               | ✅ Implemented |
@@ -84,19 +80,18 @@ This document outlines the API integration requirements between the frontend web
 | `/staff/queue/{queue_id}/call-next`    | POST   | Call next patient            | ✅ Yes               | ✅ Implemented |
 
 ### Data Format Mapping
-
 - Ensure queue and appointment responses include `queueNumber`, `currentPosition`, `estimatedTime`, `doctorName` as required by the frontend.
 
 ### Implementation Notes
 - Queue management is fully implemented in both frontend and backend
 - Queue statistics endpoint provides all necessary information for the frontend dashboard
 - Estimated wait time calculation is working correctly
-- The queue-service.ts in the frontend handles queue operations and transformations
+
+---
 
 ## 4. Doctor Management
 
 ### Web App Needs
-
 - Update doctor availability status
 - Update doctor profile
 - Get detailed patient information
@@ -106,7 +101,6 @@ This document outlines the API integration requirements between the frontend web
 - Submit consultation feedback
 
 ### Backend API Endpoints (Current & Needed)
-
 | Endpoint                                         | Method | Purpose                       | Status      |
 | ------------------------------------------------ | ------ | ----------------------------- | ----------- |
 | `/doctor/status`                                 | POST   | Update doctor availability    | ❌ Missing  |
@@ -123,25 +117,23 @@ This document outlines the API integration requirements between the frontend web
 | `/doctor/appointments/history`                   | GET    | Get appointment history       | ✅ Implemented |
 
 ### Data Format Mapping
-
 - Add/align fields for notes, note history, and consultation feedback as per frontend needs.
 
 ### Implementation Notes
 - Basic doctor functionality is implemented, but note management and consultation feedback are missing
 - Doctor dashboard statistics are implemented but may need adjustments to match frontend expectations
 - Patient details endpoint needs to include more comprehensive information including medical history
-- The doctor-service.ts in the frontend needs to be updated to handle the new endpoints
+
+---
 
 ## 5. Notification System
 
 ### Web App Needs
-
 - Send notification(s) to patient(s)
 - Get notification history
 - Manage notification templates
 
 ### Backend API Endpoints (Current & Needed)
-
 | Endpoint                                         | Method | Purpose                       | Status      |
 | ------------------------------------------------ | ------ | ----------------------------- | ----------- |
 | `/staff/notifications`                           | POST   | Send notification             | ❌ Missing  |
@@ -154,7 +146,6 @@ This document outlines the API integration requirements between the frontend web
 | `/notifications/read-all`                        | PUT    | Mark all notifications as read| ❌ Missing  |
 
 ### Data Format Mapping
-
 - Add `title`, `read`, and `type` fields to notification model/schema.
 - Ensure `created_at` is mapped to `timestamp` in frontend.
 
@@ -162,7 +153,8 @@ This document outlines the API integration requirements between the frontend web
 - Notification system is largely missing from the backend
 - Frontend expects a comprehensive notification system with read/unread status
 - Templates functionality is needed for efficient notification management
-- The notification-service.ts in the frontend needs to be implemented to handle these endpoints
+
+---
 
 ## 6. Data Model & Schema Updates Needed
 
@@ -194,16 +186,22 @@ This document outlines the API integration requirements between the frontend web
 - Create new schemas for `Notes`, `NotificationTemplate`, and `ConsultationFeedback`
 - Update `Patient` schema to include `priority`, `department`, `vitalSigns`, `noteHistory`
 
-## 7. Frontend Service Implementation Status
+---
 
-| Service | Status | Notes |
-|---------|--------|-------|
-| auth-service.ts | ✅ Complete | Handles authentication, token management |
-| receptionist-service.ts | ✅ Complete | Handles patient and queue management |
-| doctor-service.ts | ⏳ Partial | Basic functionality implemented, needs notes and consultation |
-| notification-service.ts | ❌ Missing | Needs to be implemented |
-| queue-service.ts | ✅ Complete | Handles queue operations |
-| data-transformers.ts | ⏳ Partial | Needs updates for new models |
+## 7. Endpoints/Models to Remove (Not Used in Web-App)
+
+### Patient Endpoints (Mobile Only)
+- `/patient/delete-account` - Not used in web app (keep for mobile)
+- `/patient/change-password` - Not used in web app (keep for mobile)
+
+### Admin Endpoints (Consider Keeping for Future Admin Panel)
+- `/admin/users` - Keep for admin panel
+- `/admin/doctors` - Keep for admin panel
+
+### Other Endpoints to Review
+- Any endpoints in `/sync.py` that are not used by the web app but may be needed for mobile
+
+---
 
 ## 8. Implementation Priorities
 
@@ -223,20 +221,17 @@ This document outlines the API integration requirements between the frontend web
    - Create new models for notes, templates, and feedback
    - Update schemas to match frontend expectations
 
-4. **Update frontend services**
-   - Complete doctor-service.ts implementation
-   - Create notification-service.ts
-   - Update data-transformers.ts for new models
-
-5. **Validate data transformations**
+4. **Validate data transformations**
    - Ensure all snake_case to camelCase conversions are working
    - Verify date format consistency
    - Check that all required fields are present in responses
 
-6. **Update tests and documentation**
+5. **Update tests and documentation**
    - Add tests for new endpoints
    - Update API documentation
    - Keep progress tracker updated
+
+---
 
 ## 9. Next Steps
 
@@ -255,4 +250,4 @@ This document outlines the API integration requirements between the frontend web
 ### Documentation Tasks
 - Keep this plan updated as changes are made
 - Update API documentation
-- Update progress tracker
+- Update progress tracker 

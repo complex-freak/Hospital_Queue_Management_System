@@ -198,23 +198,20 @@ class AppointmentCreate(AppointmentBase):
 # Schema for patient appointment creation from mobile app
 class PatientAppointmentCreate(BaseModel):
     appointment_date: Optional[datetime] = None
-    notes: Optional[str] = None
     reason: Optional[str] = None
     urgency: str = "normal"  # default to normal
     
     model_config = {
-        "extra": "ignore",  # Ignore extra fields
         "from_attributes": True,
         "validate_assignment": False,
         "arbitrary_types_allowed": True,
     }
     
-    # Validate and convert string to datetime if needed
     @field_validator('appointment_date', mode='before')
     @classmethod
     def validate_appointment_date(cls, v):
-        if v == "undefined" or v is None or v == "":
-            return None
+        if v is None:
+            return datetime.utcnow()
         return v
 
 
@@ -279,22 +276,75 @@ class NotificationBase(BaseModel):
     recipient: str
     message: str
     subject: Optional[str] = None
+    reference_id: Optional[UUID] = None
 
 
 class NotificationCreate(NotificationBase):
-    patient_id: UUID
+    patient_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+
+
+class NotificationUpdate(BaseModel):
+    is_read: Optional[bool] = None
+    status: Optional[str] = None
+
+
+class NotificationBulkCreate(BaseModel):
+    notifications: List[NotificationCreate]
+    send_immediately: bool = True
 
 
 class Notification(NotificationBase, BaseSchema):
     id: UUID
-    patient_id: UUID
+    patient_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    is_read: bool = False
     sent_at: Optional[datetime] = None
     status: str
     error_message: Optional[str] = None
     created_at: Optional[datetime] = None  # Make created_at optional
+    updated_at: Optional[datetime] = None
 
 
-# Audit Log schema
+class NotificationTemplateBase(BaseModel):
+    name: str
+    subject: str
+    body: str
+    type: NotificationType
+    variables: Optional[Dict[str, Any]] = None
+    is_active: bool = True
+
+
+class NotificationTemplateCreate(NotificationTemplateBase):
+    pass
+
+
+class NotificationTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    type: Optional[NotificationType] = None
+    variables: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+
+
+class NotificationTemplate(NotificationTemplateBase, BaseSchema):
+    id: UUID
+    created_by: Optional[UUID] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
+class NotificationFromTemplate(BaseModel):
+    template_id: UUID
+    recipient: str
+    patient_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    reference_id: Optional[UUID] = None
+    variables: Optional[Dict[str, Any]] = None
+
+
+# Audit log schemas
 class AuditLog(BaseSchema):
     id: UUID
     user_id: Optional[UUID] = None
@@ -319,7 +369,7 @@ class AuditLogCreate(BaseModel):
     user_agent: Optional[str] = None
 
 
-# Response schemas
+# Queue status response schema
 class QueueStatusResponse(BaseModel):
     queue_position: int
     estimated_wait_time: Optional[int] = None
@@ -341,6 +391,7 @@ class QueueResponse(BaseModel):
     created_at: Optional[datetime] = None  # Make created_at optional
 
 
+# Dashboard statistics schemas
 class DashboardStats(BaseModel):
     total_patients_today: int
     total_served_today: int
@@ -371,6 +422,7 @@ class SystemAnalytics(BaseModel):
     urgency_distribution: List[Dict[str, Any]]
 
 
+# Sync schemas
 class OfflineSyncRequest(BaseModel):
     data: Dict[str, Any]
     timestamp: str
@@ -397,7 +449,7 @@ class ConflictResolution(BaseModel):
     resolution_data: Optional[Dict[str, Any]] = None
 
 
-# Device Token schema
+# Device token schemas
 class DeviceToken(BaseSchema):
     id: UUID
     patient_id: UUID
@@ -420,7 +472,8 @@ class DeviceTokenSchema(BaseModel):
     
     model_config = {
         "from_attributes": True,
-        "extra": "ignore"
+        "populate_by_name": True,
+        "validate_assignment": True,
     }
 
 
@@ -443,3 +496,88 @@ class SettingsUpdateSchema(BaseModel):
     sms_notifications: Optional[bool] = None
     email_notifications: Optional[bool] = None
     push_notifications: Optional[bool] = None
+
+
+# Sign in response schema
+class SignInResponse(BaseModel):
+    access_token: str
+    token_type: str
+    refresh_token: str
+    expires_in: int
+    user_id: str
+    user_role: str
+
+
+class DraftRegistration(BaseModel):
+    """Schema for storing draft patient registrations"""
+    draft_id: str
+    data: dict
+    last_updated: datetime
+
+
+# Patient Note schemas
+class PatientNoteBase(BaseModel):
+    content: str
+
+
+class PatientNoteCreate(PatientNoteBase):
+    patient_id: UUID
+    doctor_id: UUID
+    previous_version_id: Optional[UUID] = None
+
+
+class PatientNoteUpdate(BaseModel):
+    content: str
+
+
+class PatientNote(PatientNoteBase, BaseSchema):
+    id: UUID
+    patient_id: UUID
+    doctor_id: UUID
+    version: int
+    previous_version_id: Optional[UUID] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    # Added dynamically, not stored in DB
+    doctor_name: Optional[str] = None
+    patient_name: Optional[str] = None
+
+
+# Consultation Feedback schemas
+class ConsultationFeedbackBase(BaseModel):
+    diagnosis: str
+    treatment: str
+    prescription: Optional[str] = None
+    follow_up_date: Optional[datetime] = None
+    duration: Optional[int] = None  # in minutes
+
+
+class ConsultationFeedbackCreate(ConsultationFeedbackBase):
+    appointment_id: UUID
+    doctor_id: UUID
+
+
+class ConsultationFeedbackUpdate(BaseModel):
+    diagnosis: Optional[str] = None
+    treatment: Optional[str] = None
+    prescription: Optional[str] = None
+    follow_up_date: Optional[datetime] = None
+    duration: Optional[int] = None
+
+
+class ConsultationFeedback(ConsultationFeedbackBase, BaseSchema):
+    id: UUID
+    appointment_id: UUID
+    doctor_id: UUID
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    # Added dynamically, not stored in DB
+    doctor_name: Optional[str] = None
+    patient_name: Optional[str] = None
+
+
+# Doctor Status Update schema
+class DoctorStatusUpdate(BaseModel):
+    is_available: bool

@@ -15,9 +15,12 @@ from schemas import (
     DoctorDashboardStats,
     Token,
     UserLogin,
-    Doctor as DoctorSchema
+    Doctor as DoctorSchema,
+    PatientNote, PatientNoteCreate, PatientNoteUpdate,
+    ConsultationFeedback, ConsultationFeedbackCreate, ConsultationFeedbackUpdate,
+    DoctorStatusUpdate
 )
-from services import QueueService, NotificationService, AuthService
+from services import QueueService, NotificationService, AuthService, DoctorService
 from api.dependencies import require_doctor, log_audit_event
 from api.core.security import create_access_token
 from api.core.config import settings
@@ -535,4 +538,455 @@ async def get_doctor_dashboard_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch doctor dashboard stats"
+        )
+
+@router.put("/status", response_model=DoctorSchema)
+async def update_doctor_status(
+    status_data: DoctorStatusUpdate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update doctor availability status"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Update doctor status
+        updated_doctor = await DoctorService.update_doctor_status(
+            db=db,
+            doctor_id=doctor.id,
+            status_data=status_data
+        )
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="UPDATE",
+            resource="doctor",
+            resource_id=doctor.id,
+            details=f"Doctor status updated to available={status_data.is_available}",
+            db=db
+        )
+        
+        # Manually set the user attribute to avoid relationship loading errors
+        updated_doctor.user = current_user
+        
+        return updated_doctor
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update doctor status"
+        )
+
+@router.post("/patients/{patient_id}/notes", response_model=PatientNote)
+async def create_patient_note(
+    patient_id: UUID,
+    note_data: PatientNoteCreate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new note for a patient"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Verify patient exists and has appointment with this doctor
+        result = await db.execute(
+            select(Patient)
+            .join(Appointment, Patient.id == Appointment.patient_id)
+            .where(
+                and_(
+                    Patient.id == patient_id,
+                    Appointment.doctor_id == doctor.id
+                )
+            )
+        )
+        
+        patient = result.scalar_one_or_none()
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Patient not found or not assigned to this doctor"
+            )
+        
+        # Override patient_id and doctor_id in note_data
+        note_data.patient_id = patient_id
+        note_data.doctor_id = doctor.id
+        
+        # Create note
+        note = await DoctorService.create_patient_note(
+            db=db,
+            note_data=note_data
+        )
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="CREATE",
+            resource="patient_note",
+            resource_id=note.id,
+            details=f"Doctor created note for patient {patient_id}",
+            db=db
+        )
+        
+        return note
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create patient note"
+        )
+
+@router.get("/patients/{patient_id}/notes", response_model=List[PatientNote])
+async def get_patient_notes(
+    patient_id: UUID,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all notes for a patient"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Verify patient exists and has appointment with this doctor
+        result = await db.execute(
+            select(Patient)
+            .join(Appointment, Patient.id == Appointment.patient_id)
+            .where(
+                and_(
+                    Patient.id == patient_id,
+                    Appointment.doctor_id == doctor.id
+                )
+            )
+        )
+        
+        patient = result.scalar_one_or_none()
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Patient not found or not assigned to this doctor"
+            )
+        
+        # Get notes
+        notes = await DoctorService.get_patient_notes(
+            db=db,
+            patient_id=patient_id,
+            doctor_id=doctor.id  # Only get notes by this doctor
+        )
+        
+        return notes
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get patient notes"
+        )
+
+@router.get("/notes/{note_id}/history", response_model=List[PatientNote])
+async def get_note_history(
+    note_id: UUID,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get history of a note (all versions)"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Get note history
+        try:
+            notes = await DoctorService.get_note_history(
+                db=db,
+                note_id=note_id
+            )
+            
+            # Verify this doctor has access to these notes
+            if notes and notes[0].doctor_id != doctor.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You don't have access to this note"
+                )
+            
+            return notes
+            
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Note not found"
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get note history"
+        )
+
+@router.post("/appointments/{appointment_id}/feedback", response_model=ConsultationFeedback)
+async def create_consultation_feedback(
+    appointment_id: UUID,
+    feedback_data: ConsultationFeedbackCreate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create consultation feedback for an appointment"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Verify appointment exists and belongs to this doctor
+        result = await db.execute(
+            select(Appointment).where(
+                and_(
+                    Appointment.id == appointment_id,
+                    Appointment.doctor_id == doctor.id
+                )
+            )
+        )
+        
+        appointment = result.scalar_one_or_none()
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found or not assigned to this doctor"
+            )
+        
+        # Override appointment_id and doctor_id in feedback_data
+        feedback_data.appointment_id = appointment_id
+        feedback_data.doctor_id = doctor.id
+        
+        # Create feedback
+        try:
+            feedback = await DoctorService.create_consultation_feedback(
+                db=db,
+                feedback_data=feedback_data
+            )
+            
+            # Log audit event
+            background_tasks.add_task(
+                log_audit_event,
+                request=request,
+                user_id=current_user.id,
+                user_type="user",
+                action="CREATE",
+                resource="consultation_feedback",
+                resource_id=feedback.id,
+                details=f"Doctor created consultation feedback for appointment {appointment_id}",
+                db=db
+            )
+            
+            return feedback
+            
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create consultation feedback"
+        )
+
+@router.get("/appointments/{appointment_id}/feedback", response_model=ConsultationFeedback)
+async def get_consultation_feedback(
+    appointment_id: UUID,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get consultation feedback for an appointment"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Verify appointment exists and belongs to this doctor
+        result = await db.execute(
+            select(Appointment).where(
+                and_(
+                    Appointment.id == appointment_id,
+                    Appointment.doctor_id == doctor.id
+                )
+            )
+        )
+        
+        appointment = result.scalar_one_or_none()
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found or not assigned to this doctor"
+            )
+        
+        # Get feedback
+        feedback = await DoctorService.get_consultation_feedback(
+            db=db,
+            appointment_id=appointment_id
+        )
+        
+        if not feedback:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Consultation feedback not found for this appointment"
+            )
+        
+        return feedback
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get consultation feedback"
+        )
+
+@router.put("/feedback/{feedback_id}", response_model=ConsultationFeedback)
+async def update_consultation_feedback(
+    feedback_id: UUID,
+    feedback_data: ConsultationFeedbackUpdate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update consultation feedback"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Verify feedback exists and belongs to this doctor
+        result = await db.execute(
+            select(ConsultationFeedback).where(
+                and_(
+                    ConsultationFeedback.id == feedback_id,
+                    ConsultationFeedback.doctor_id == doctor.id
+                )
+            )
+        )
+        
+        feedback = result.scalar_one_or_none()
+        if not feedback:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Consultation feedback not found or not created by this doctor"
+            )
+        
+        # Update feedback
+        try:
+            updated_feedback = await DoctorService.update_consultation_feedback(
+                db=db,
+                feedback_id=feedback_id,
+                feedback_data=feedback_data
+            )
+            
+            # Log audit event
+            background_tasks.add_task(
+                log_audit_event,
+                request=request,
+                user_id=current_user.id,
+                user_type="user",
+                action="UPDATE",
+                resource="consultation_feedback",
+                resource_id=feedback_id,
+                details=f"Doctor updated consultation feedback {feedback_id}",
+                db=db
+            )
+            
+            return updated_feedback
+            
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update consultation feedback"
         )

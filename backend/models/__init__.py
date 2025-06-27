@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from sqlalchemy import Column, String, DateTime, Boolean, Integer, Text, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, String, DateTime, Boolean, Integer, Text, ForeignKey, Enum as SQLEnum, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -90,6 +90,7 @@ class Patient(Base):
     # Relationships
     appointments = relationship("Appointment", back_populates="patient")
     notifications = relationship("Notification", back_populates="patient")
+    notes = relationship("PatientNote", back_populates="patient")
 
 
 class User(Base):
@@ -125,6 +126,8 @@ class Doctor(Base):
     # Relationships
     user = relationship("User", back_populates="doctor_profile")
     appointments = relationship("Appointment", back_populates="doctor")
+    notes = relationship("PatientNote", back_populates="doctor")
+    consultations = relationship("ConsultationFeedback", back_populates="doctor")
 
 
 class Appointment(Base):
@@ -147,6 +150,7 @@ class Appointment(Base):
     doctor = relationship("Doctor", back_populates="appointments")
     created_by_user = relationship("User", back_populates="created_appointments")
     queue_entry = relationship("Queue", back_populates="appointment", uselist=False)
+    consultation_feedback = relationship("ConsultationFeedback", back_populates="appointment", uselist=False)
 
 
 class Queue(Base):
@@ -171,18 +175,41 @@ class Notification(Base):
     __tablename__ = "notifications"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
-    type = Column(SQLEnum(NotificationType), nullable=False)
-    recipient = Column(String(255), nullable=False)  # phone/email/device_token
-    message = Column(Text, nullable=False)
-    subject = Column(String(255), nullable=True)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    type = Column(SQLEnum(NotificationType), default=NotificationType.SYSTEM)
+    recipient = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    subject = Column(String, nullable=True)
+    is_read = Column(Boolean, default=False)
     sent_at = Column(DateTime(timezone=True), nullable=True)
-    status = Column(String(50), default="pending")  # pending, sent, failed
-    error_message = Column(Text, nullable=True)
+    status = Column(String, default="pending")
+    error_message = Column(String, nullable=True)  
+    reference_id = Column(UUID(as_uuid=True), nullable=True)  # For linking to appointments, etc.
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    patient = relationship("Patient", back_populates="notifications")
+    patient = relationship("Patient", back_populates="notifications", foreign_keys=[patient_id])
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class NotificationTemplate(Base):
+    __tablename__ = "notification_templates"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False, unique=True)
+    subject = Column(String(200), nullable=False)
+    body = Column(Text, nullable=False)
+    type = Column(SQLEnum(NotificationType), default=NotificationType.SYSTEM)
+    variables = Column(JSON, nullable=True)  # Store template variables as JSON
+    is_active = Column(Boolean, default=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    creator = relationship("User", foreign_keys=[created_by])
 
 
 class AuditLog(Base):
@@ -230,3 +257,54 @@ class PatientSettings(Base):
     
     # Relationship
     patient = relationship("Patient")
+
+
+class PatientDraft(Base):
+    __tablename__ = "patient_drafts"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    draft_id = Column(String, nullable=False, unique=True, index=True)
+    staff_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    data = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationship
+    staff = relationship("User", foreign_keys=[staff_id])
+
+
+class PatientNote(Base):
+    __tablename__ = "patient_notes"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
+    doctor_id = Column(UUID(as_uuid=True), ForeignKey("doctors.id"), nullable=False)
+    content = Column(Text, nullable=False)
+    version = Column(Integer, default=1)
+    previous_version_id = Column(UUID(as_uuid=True), ForeignKey("patient_notes.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    patient = relationship("Patient", back_populates="notes")
+    doctor = relationship("Doctor", back_populates="notes")
+    previous_version = relationship("PatientNote", remote_side=[id], backref="next_versions")
+
+
+class ConsultationFeedback(Base):
+    __tablename__ = "consultation_feedback"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    appointment_id = Column(UUID(as_uuid=True), ForeignKey("appointments.id"), unique=True, nullable=False)
+    doctor_id = Column(UUID(as_uuid=True), ForeignKey("doctors.id"), nullable=False)
+    diagnosis = Column(Text, nullable=False)
+    treatment = Column(Text, nullable=False)
+    prescription = Column(Text, nullable=True)
+    follow_up_date = Column(DateTime(timezone=True), nullable=True)
+    duration = Column(Integer, nullable=True)  # in minutes
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    appointment = relationship("Appointment", back_populates="consultation_feedback")
+    doctor = relationship("Doctor", back_populates="consultations")

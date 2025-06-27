@@ -49,6 +49,29 @@ export interface Notification {
   createdAt: string;
 }
 
+export interface PatientNote {
+  id: string;
+  content: string;
+  version: number;
+  createdAt: string;
+  doctorName: string;
+  doctorId: string;
+  patientId: string;
+}
+
+export interface ConsultationFeedback {
+  id: string;
+  diagnosis: string;
+  treatment: string;
+  prescription: string;
+  followUpDate?: string;
+  notes?: string;
+  duration: number;
+  doctorName?: string;
+  patientName?: string;
+  createdAt: string;
+}
+
 // Backend to Frontend transformers
 
 /**
@@ -187,6 +210,43 @@ export const transformToFrontendNotification = (backendNotification: any): Notif
   };
 };
 
+/**
+ * Transform backend patient note data to frontend format
+ */
+export const transformToFrontendPatientNote = (backendNote: any): PatientNote => {
+  return {
+    id: backendNote.id,
+    content: backendNote.content,
+    version: backendNote.version,
+    createdAt: backendNote.created_at 
+      ? new Date(backendNote.created_at).toISOString()
+      : new Date().toISOString(),
+    doctorName: backendNote.doctor_name || 'Unknown Doctor',
+    doctorId: backendNote.doctor_id,
+    patientId: backendNote.patient_id
+  };
+};
+
+/**
+ * Transform backend consultation feedback data to frontend format
+ */
+export const transformToFrontendConsultationFeedback = (backendFeedback: any): ConsultationFeedback => {
+  return {
+    id: backendFeedback.id,
+    diagnosis: backendFeedback.diagnosis || '',
+    treatment: backendFeedback.treatment || '',
+    prescription: backendFeedback.prescription || '',
+    followUpDate: backendFeedback.follow_up_date,
+    notes: backendFeedback.notes || '',
+    duration: backendFeedback.duration || 0,
+    doctorName: backendFeedback.doctor_name,
+    patientName: backendFeedback.patient_name,
+    createdAt: backendFeedback.created_at 
+      ? new Date(backendFeedback.created_at).toISOString()
+      : new Date().toISOString()
+  };
+};
+
 // Frontend to Backend transformers
 
 /**
@@ -243,5 +303,29 @@ export const transformToBackendNotification = (frontendNotification: any) => {
     type: frontendNotification.type || 'push',
     message: frontendNotification.message,
     subject: frontendNotification.title
+  };
+};
+
+/**
+ * Transform frontend patient note data to backend format
+ */
+export const transformToBackendPatientNote = (frontendNote: any) => {
+  return {
+    content: frontendNote.content,
+    patient_id: frontendNote.patientId,
+    previous_version_id: frontendNote.previousVersionId
+  };
+};
+
+/**
+ * Transform frontend consultation feedback data to backend format
+ */
+export const transformToBackendConsultationFeedback = (frontendFeedback: any) => {
+  return {
+    diagnosis: frontendFeedback.diagnosis,
+    treatment: frontendFeedback.treatment,
+    prescription: frontendFeedback.prescription,
+    follow_up_date: frontendFeedback.followUpDate,
+    duration: frontendFeedback.duration
   };
 }; 

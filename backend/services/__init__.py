@@ -1,21 +1,24 @@
 from typing import Optional, List
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_, desc, asc
+from sqlalchemy import select, func, and_, or_, desc, asc, update
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 import logging
 
 from models import (
     Patient, User, Doctor, Appointment, Queue, Notification, AuditLog,
-    UserRole, AppointmentStatus, QueueStatus, UrgencyLevel, NotificationType
+    UserRole, AppointmentStatus, QueueStatus, UrgencyLevel, NotificationType,
+    DeviceToken, NotificationTemplate
 )
 from schemas import (
     PatientCreate, PatientUpdate, UserCreate, UserUpdate, 
     AppointmentCreate, AppointmentUpdate, QueueCreate, QueueUpdate,
-    NotificationCreate, QueueStatusResponse, DashboardStats
+    NotificationCreate, QueueStatusResponse, DashboardStats,
+    NotificationBulkCreate, NotificationFromTemplate
 )
 from api.core.security import get_password_hash, verify_password, create_access_token
+from .doctor_service import DoctorService
 
 logger = logging.getLogger(__name__)
 
@@ -463,6 +466,325 @@ class NotificationService:
         return notification
     
     @staticmethod
+    async def create_bulk_notifications(
+        db: AsyncSession,
+        bulk_data: NotificationBulkCreate
+    ) -> List[Notification]:
+        """Create multiple notification records"""
+        notifications = []
+        for notification_data in bulk_data.notifications:
+            notification = Notification(**notification_data.model_dump())
+            db.add(notification)
+            notifications.append(notification)
+        
+        await db.commit()
+        
+        # Refresh all notifications to get their IDs
+        for notification in notifications:
+            await db.refresh(notification)
+        
+        # If send_immediately is True, attempt to send all notifications
+        if bulk_data.send_immediately:
+            for notification in notifications:
+                try:
+                    if notification.type == NotificationType.SMS:
+                        success = await NotificationService.send_sms_notification(
+                            notification.recipient,
+                            notification.message
+                        )
+                    elif notification.type == NotificationType.PUSH:
+                        # Get device token for the recipient
+                        result = await db.execute(
+                            select(DeviceToken)
+                            .where(
+                                and_(
+                                    or_(
+                                        DeviceToken.patient_id == notification.patient_id,
+                                        DeviceToken.patient_id == notification.user_id
+                                    ),
+                                    DeviceToken.is_active == True
+                                )
+                            )
+                            .order_by(desc(DeviceToken.created_at))
+                            .limit(1)
+                        )
+                        device_token = result.scalar_one_or_none()
+                        
+                        if device_token:
+                            success = await NotificationService.send_push_notification(
+                                device_token.token,
+                                notification.subject or "Notification",
+                                notification.message
+                            )
+                        else:
+                            success = False
+                            notification.error_message = "No active device token found"
+                    else:
+                        # For other notification types (email, system)
+                        success = True  # Assume success for now
+                    
+                    notification.status = "sent" if success else "failed"
+                    notification.sent_at = datetime.utcnow() if success else None
+                except Exception as e:
+                    notification.status = "failed"
+                    notification.error_message = str(e)
+        
+        await db.commit()
+        return notifications
+    
+    @staticmethod
+    async def get_notifications(
+        db: AsyncSession,
+        patient_id: Optional[UUID] = None,
+        user_id: Optional[UUID] = None,
+        skip: int = 0,
+        limit: int = 50
+    ) -> List[Notification]:
+        """Get notifications for a patient or user"""
+        query = select(Notification)
+        
+        if patient_id:
+            query = query.where(Notification.patient_id == patient_id)
+        elif user_id:
+            query = query.where(Notification.user_id == user_id)
+        
+        query = query.order_by(desc(Notification.created_at)).offset(skip).limit(limit)
+        result = await db.execute(query)
+        return result.scalars().all()
+    
+    @staticmethod
+    async def mark_notification_read(
+        db: AsyncSession,
+        notification_id: UUID
+    ) -> Optional[Notification]:
+        """Mark a notification as read"""
+        result = await db.execute(
+            select(Notification).where(Notification.id == notification_id)
+        )
+        notification = result.scalar_one_or_none()
+        
+        if notification:
+            notification.is_read = True
+            await db.commit()
+            await db.refresh(notification)
+        
+        return notification
+    
+    @staticmethod
+    async def mark_all_read(
+        db: AsyncSession,
+        patient_id: Optional[UUID] = None,
+        user_id: Optional[UUID] = None
+    ) -> int:
+        """Mark all notifications as read for a patient or user"""
+        query = update(Notification).values(is_read=True)
+        
+        if patient_id:
+            query = query.where(
+                and_(
+                    Notification.patient_id == patient_id,
+                    Notification.is_read == False
+                )
+            )
+        elif user_id:
+            query = query.where(
+                and_(
+                    Notification.user_id == user_id,
+                    Notification.is_read == False
+                )
+            )
+        else:
+            return 0  # No patient_id or user_id provided
+        
+        result = await db.execute(query)
+        await db.commit()
+        return result.rowcount
+    
+    @staticmethod
+    async def create_template(
+        db: AsyncSession,
+        template_data: NotificationTemplateCreate,
+        created_by: Optional[UUID] = None
+    ) -> NotificationTemplate:
+        """Create a notification template"""
+        template = NotificationTemplate(
+            **template_data.model_dump(),
+            created_by=created_by
+        )
+        db.add(template)
+        await db.commit()
+        await db.refresh(template)
+        return template
+    
+    @staticmethod
+    async def get_templates(
+        db: AsyncSession,
+        skip: int = 0,
+        limit: int = 50,
+        active_only: bool = True
+    ) -> List[NotificationTemplate]:
+        """Get all notification templates"""
+        query = select(NotificationTemplate)
+        
+        if active_only:
+            query = query.where(NotificationTemplate.is_active == True)
+        
+        query = query.order_by(NotificationTemplate.name).offset(skip).limit(limit)
+        result = await db.execute(query)
+        return result.scalars().all()
+    
+    @staticmethod
+    async def get_template(
+        db: AsyncSession,
+        template_id: UUID
+    ) -> Optional[NotificationTemplate]:
+        """Get a notification template by ID"""
+        result = await db.execute(
+            select(NotificationTemplate).where(NotificationTemplate.id == template_id)
+        )
+        return result.scalar_one_or_none()
+    
+    @staticmethod
+    async def update_template(
+        db: AsyncSession,
+        template_id: UUID,
+        template_data: NotificationTemplateUpdate
+    ) -> Optional[NotificationTemplate]:
+        """Update a notification template"""
+        result = await db.execute(
+            select(NotificationTemplate).where(NotificationTemplate.id == template_id)
+        )
+        template = result.scalar_one_or_none()
+        
+        if template:
+            update_data = template_data.model_dump(exclude_unset=True)
+            for field, value in update_data.items():
+                setattr(template, field, value)
+            
+            await db.commit()
+            await db.refresh(template)
+        
+        return template
+    
+    @staticmethod
+    async def delete_template(
+        db: AsyncSession,
+        template_id: UUID
+    ) -> bool:
+        """Delete a notification template (soft delete by setting is_active=False)"""
+        result = await db.execute(
+            select(NotificationTemplate).where(NotificationTemplate.id == template_id)
+        )
+        template = result.scalar_one_or_none()
+        
+        if template:
+            template.is_active = False
+            await db.commit()
+            return True
+        
+        return False
+    
+    @staticmethod
+    async def send_notification_from_template(
+        db: AsyncSession,
+        template_request: NotificationFromTemplate
+    ) -> Optional[Notification]:
+        """Send a notification using a template"""
+        # Get the template
+        result = await db.execute(
+            select(NotificationTemplate).where(
+                and_(
+                    NotificationTemplate.id == template_request.template_id,
+                    NotificationTemplate.is_active == True
+                )
+            )
+        )
+        template = result.scalar_one_or_none()
+        
+        if not template:
+            raise ValueError("Template not found or inactive")
+        
+        # Process template with variables
+        subject = template.subject
+        message = template.body
+        
+        if template_request.variables:
+            try:
+                # Simple string formatting for variables
+                for key, value in template_request.variables.items():
+                    placeholder = f"{{{key}}}"
+                    subject = subject.replace(placeholder, str(value))
+                    message = message.replace(placeholder, str(value))
+            except Exception as e:
+                logger.error(f"Error processing template variables: {e}")
+                # Continue with unprocessed template
+        
+        # Create notification
+        notification_data = NotificationCreate(
+            type=template.type,
+            recipient=template_request.recipient,
+            subject=subject,
+            message=message,
+            patient_id=template_request.patient_id,
+            user_id=template_request.user_id,
+            reference_id=template_request.reference_id
+        )
+        
+        notification = await NotificationService.create_notification(db, notification_data)
+        
+        # Send the notification
+        try:
+            if template.type == NotificationType.SMS:
+                success = await NotificationService.send_sms_notification(
+                    notification.recipient,
+                    notification.message
+                )
+            elif template.type == NotificationType.PUSH:
+                # Get device token
+                token_query = select(DeviceToken)
+                
+                if notification.patient_id:
+                    token_query = token_query.where(
+                        and_(
+                            DeviceToken.patient_id == notification.patient_id,
+                            DeviceToken.is_active == True
+                        )
+                    )
+                elif notification.user_id:
+                    # For future use if we add device tokens for staff/doctors
+                    pass
+                
+                token_query = token_query.order_by(desc(DeviceToken.created_at)).limit(1)
+                token_result = await db.execute(token_query)
+                device_token = token_result.scalar_one_or_none()
+                
+                if device_token:
+                    success = await NotificationService.send_push_notification(
+                        device_token.token,
+                        notification.subject or "Notification",
+                        notification.message
+                    )
+                else:
+                    success = False
+                    notification.error_message = "No active device token found"
+            else:
+                # For other notification types (email, system)
+                success = True  # Assume success for now
+            
+            notification.status = "sent" if success else "failed"
+            notification.sent_at = datetime.utcnow() if success else None
+            await db.commit()
+            await db.refresh(notification)
+            
+            return notification
+        except Exception as e:
+            notification.status = "failed"
+            notification.error_message = str(e)
+            await db.commit()
+            logger.error(f"Error sending notification: {e}")
+            return notification
+
+    @staticmethod
     async def send_sms_notification(
         phone_number: str,
         message: str
@@ -501,7 +823,7 @@ class NotificationService:
         try:
             import firebase_admin
             from firebase_admin import messaging, credentials
-            from core.config import settings
+            from api.core.config import settings
             
             if not settings.FIREBASE_CREDENTIALS_PATH:
                 logger.warning("Firebase credentials not configured")
@@ -549,12 +871,13 @@ class NotificationService:
             
             # Create notification record
             notification = Notification(
-                patient_id=user_id,
+                user_id=user_id,
                 type=NotificationType.SMS if notification_type == "sms" else NotificationType.PUSH,
                 recipient=user.email or str(user.id),
                 subject=title,
                 message=message,
-                status="pending"
+                status="pending",
+                reference_id=reference_id
             )
             
             db.add(notification)
@@ -597,7 +920,8 @@ class NotificationService:
                 type=NotificationType.SMS,
                 recipient=patient.phone_number,
                 message=message,
-                subject="Appointment Confirmed"
+                subject="Appointment Confirmed",
+                reference_id=appointment.id
             )
         )
         

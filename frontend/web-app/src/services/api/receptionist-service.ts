@@ -37,7 +37,7 @@ export const receptionistService = {
       
       return {
         success: true,
-        data: response.data.map((patient: any) => transformToFrontendUser(patient)),
+        data: Array.isArray(response.data) ? response.data.map((patient: any) => transformToFrontendUser(patient)) : [],
       };
     } catch (error) {
       console.error('Error fetching all patients:', error);
@@ -123,10 +123,10 @@ export const receptionistService = {
             lastUpdated: response.data.last_updated,
           },
         };
-      } catch (backendError) {
-        console.warn('Backend draft endpoint not available, using localStorage instead');
+      } catch (backendError: any) {
+        console.warn('Backend draft endpoint error:', backendError.message);
         
-        // Fallback to localStorage if endpoint doesn't exist
+        // Fallback to localStorage if endpoint doesn't exist or fails
         localStorage.setItem('patientRegistrationDraft-' + draftData.draftId, JSON.stringify({
           ...draftData,
           lastUpdated: new Date().toISOString(),
@@ -153,12 +153,15 @@ export const receptionistService = {
       try {
         const response = await api.get(`/staff/patients/drafts/${draftId}`);
         
-        return {
-          success: true,
-          data: response.data.data,
-        };
-      } catch (backendError) {
-        console.warn('Backend draft endpoint not available, using localStorage instead');
+        if (response.data && response.data.data) {
+          return {
+            success: true,
+            data: response.data.data,
+          };
+        }
+        throw new Error('Invalid response format');
+      } catch (backendError: any) {
+        console.warn('Backend draft endpoint error:', backendError.message);
         
         // Fallback to localStorage
         const draftData = localStorage.getItem('patientRegistrationDraft-' + draftId);
@@ -203,19 +206,19 @@ export const receptionistService = {
   },
   
   // Remove patient from queue
-  removeFromQueue: async (patientId: string, reason: string) => {
+  removeFromQueue: async (appointmentId: string, reason: string) => {
     try {
-      const response = await api.post(`/staff/appointments/${patientId}/cancel`, { 
+      const response = await api.post(`/staff/appointments/${appointmentId}/cancel`, { 
         reason: reason 
       });
       
       return {
         success: true,
         data: { 
-          id: patientId, 
+          id: appointmentId, 
           removed: true, 
           reason: reason,
-          status: response.data.status
+          status: response.data.status || 'cancelled'
         },
       };
     } catch (error: any) {

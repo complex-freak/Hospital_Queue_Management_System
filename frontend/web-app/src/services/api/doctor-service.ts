@@ -2,7 +2,13 @@ import api from './client';
 import { ProfileData } from './types';
 import { Patient, ConsultationFeedback, NoteVersion } from '@/types/patient';
 import { authService } from './auth-service';
-import { transformToFrontendUser } from './data-transformers';
+import { 
+  transformToFrontendUser, 
+  transformToFrontendPatientNote, 
+  transformToFrontendConsultationFeedback,
+  transformToBackendPatientNote,
+  transformToBackendConsultationFeedback
+} from './data-transformers';
 
 export const doctorService = {
   // Update doctor availability status
@@ -82,14 +88,17 @@ export const doctorService = {
   // Save medical notes for a patient
   savePatientNotes: async (patientId: string, notes: string) => {
     try {
-      const response = await api.post(`/doctor/patients/${patientId}/notes`, { 
-        content: notes 
+      const noteData = transformToBackendPatientNote({
+        content: notes,
+        patientId: patientId
       });
+      
+      const response = await api.post(`/doctor/patients/${patientId}/notes`, noteData);
       
       return { 
         success: true, 
         message: 'Notes saved successfully',
-        data: response.data
+        data: transformToFrontendPatientNote(response.data)
       };
     } catch (error: any) {
       console.error('Error saving patient notes:', error);
@@ -100,18 +109,39 @@ export const doctorService = {
     }
   },
 
-  // Get note history for a patient
-  getNoteHistory: async (patientId: string) => {
+  // Get patient notes
+  getPatientNotes: async (patientId: string) => {
     try {
-      const response = await api.get(`/doctor/patients/${patientId}/notes/history`);
+      const response = await api.get(`/doctor/patients/${patientId}/notes`);
+      
+      // Transform notes data to match frontend format
+      const transformedNotes = response.data.map((note: any) => 
+        transformToFrontendPatientNote(note)
+      );
+      
+      return { 
+        success: true, 
+        data: transformedNotes 
+      };
+    } catch (error: any) {
+      console.error('Error fetching patient notes:', error);
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to fetch patient notes',
+        data: []
+      };
+    }
+  },
+
+  // Get note history for a specific note
+  getNoteHistory: async (noteId: string) => {
+    try {
+      const response = await api.get(`/doctor/notes/${noteId}/history`);
       
       // Transform history data to match frontend format
-      const transformedHistory: NoteVersion[] = response.data.map((note: any) => ({
-        id: note.id,
-        content: note.content,
-        timestamp: new Date(note.created_at).toISOString(),
-        doctorName: note.doctor_name || 'Unknown Doctor'
-      }));
+      const transformedHistory = response.data.map((note: any) => 
+        transformToFrontendPatientNote(note)
+      );
       
       return { 
         success: true, 
@@ -130,70 +160,77 @@ export const doctorService = {
       
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to fetch notes history'
-      };
-    }
-  },
-
-  // Save a new version of notes
-  saveNoteVersion: async (patientId: string, content: string) => {
-    try {
-      const response = await api.post(`/doctor/patients/${patientId}/notes/versions`, { 
-        content: content 
-      });
-      
-      // Transform to frontend format
-      const transformedNote: NoteVersion = {
-        id: response.data.id,
-        content: response.data.content,
-        timestamp: new Date(response.data.created_at).toISOString(),
-        doctorName: response.data.doctor_name || 'Unknown Doctor'
-      };
-      
-      return { 
-        success: true, 
-        data: transformedNote, 
-        message: 'Note version saved successfully' 
-      };
-    } catch (error: any) {
-      console.error('Error saving note version:', error);
-      
-      // If endpoint is not yet implemented, fallback to regular notes
-      if (error.response?.status === 404) {
-        return doctorService.savePatientNotes(patientId, content);
-      }
-      
-      return {
-        success: false,
-        error: error.response?.data?.detail || 'Failed to save note version'
+        error: error.response?.data?.detail || 'Failed to fetch notes history',
+        data: []
       };
     }
   },
 
   // Submit consultation feedback
-  submitConsultation: async (consultationData: ConsultationFeedback) => {
+  submitConsultation: async (appointmentId: string, consultationData: ConsultationFeedback) => {
     try {
-      const response = await api.post('/doctor/consultations', {
-        patient_id: consultationData.patientId,
-        appointment_id: consultationData.appointmentId,
-        diagnosis: consultationData.diagnosis,
-        treatment: consultationData.treatment,
-        prescription: consultationData.prescription,
-        follow_up: consultationData.followUp,
-        notes: consultationData.notes,
-        duration: consultationData.duration
-      });
+      const feedbackData = transformToBackendConsultationFeedback(consultationData);
+      
+      const response = await api.post(`/doctor/appointments/${appointmentId}/feedback`, feedbackData);
       
       return { 
         success: true, 
         message: 'Consultation submitted successfully',
-        data: response.data
+        data: transformToFrontendConsultationFeedback(response.data)
       };
     } catch (error: any) {
       console.error('Error submitting consultation:', error);
       return {
         success: false,
         error: error.response?.data?.detail || 'Failed to submit consultation'
+      };
+    }
+  },
+  
+  // Get consultation feedback for an appointment
+  getConsultationFeedback: async (appointmentId: string) => {
+    try {
+      const response = await api.get(`/doctor/appointments/${appointmentId}/feedback`);
+      
+      return { 
+        success: true, 
+        data: transformToFrontendConsultationFeedback(response.data)
+      };
+    } catch (error: any) {
+      console.error('Error fetching consultation feedback:', error);
+      
+      // If feedback doesn't exist yet
+      if (error.response?.status === 404) {
+        return {
+          success: true,
+          data: null
+        };
+      }
+      
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to fetch consultation feedback'
+      };
+    }
+  },
+  
+  // Update consultation feedback
+  updateConsultationFeedback: async (feedbackId: string, consultationData: Partial<ConsultationFeedback>) => {
+    try {
+      const feedbackData = transformToBackendConsultationFeedback(consultationData);
+      
+      const response = await api.put(`/doctor/feedback/${feedbackId}`, feedbackData);
+      
+      return { 
+        success: true, 
+        message: 'Consultation feedback updated successfully',
+        data: transformToFrontendConsultationFeedback(response.data)
+      };
+    } catch (error: any) {
+      console.error('Error updating consultation feedback:', error);
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Failed to update consultation feedback'
       };
     }
   },

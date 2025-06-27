@@ -10,12 +10,16 @@ from schemas import (
     PatientCreate, AppointmentCreate, AppointmentUpdate,
     Patient as PatientSchema, Appointment as AppointmentSchema,
     Queue as QueueSchema, QueueUpdate, DashboardStats, QueueCreate,
-    Token, UserLogin, User as UserSchema
+    Token, UserLogin, User as UserSchema, DraftRegistration,
+    NotificationCreate, NotificationBulkCreate, Notification,
+    NotificationTemplateCreate, NotificationTemplate, NotificationTemplateUpdate,
+    NotificationFromTemplate
 )
 from services import AuthService, AppointmentService, QueueService, NotificationService
 from api.dependencies import require_staff, log_audit_event
 from api.core.security import create_access_token
 from api.core.config import settings
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -417,6 +421,22 @@ async def get_dashboard_stats(
             detail="Failed to fetch dashboard stats"
         )
 
+@router.get("/queue/stats")
+async def get_queue_stats(
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get queue statistics for staff"""
+    try:
+        # Get queue statistics from QueueService
+        queue_stats = await QueueService.get_queue_statistics(db)
+        return queue_stats
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch queue statistics"
+        )
+
 @router.post("/queue", response_model=QueueSchema)
 async def create_queue(
     queue_data: QueueCreate,
@@ -604,5 +624,569 @@ async def logout_staff(
 async def get_current_staff(
     current_user: User = Depends(require_staff)
 ):
-    """Get current authenticated staff/receptionist profile"""
+    """Get current authenticated staff"""
     return current_user
+
+@router.get("/patients", response_model=List[PatientSchema])
+async def get_all_patients(
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all patients (both queued and historical)"""
+    try:
+        query = select(Patient).order_by(desc(Patient.created_at)).offset(skip).limit(limit)
+        result = await db.execute(query)
+        patients = result.scalars().all()
+        
+        return patients
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch patients"
+        )
+
+@router.post("/patients/drafts", response_model=DraftRegistration)
+async def save_patient_draft(
+    draft_data: DraftRegistration,
+    request: Request,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Save draft patient registration"""
+    try:
+        # For now, we'll just return the data as if it was saved
+        # In a production environment, you would store this in the database
+        draft_data.last_updated = datetime.utcnow()
+        return draft_data
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save draft registration"
+        )
+
+@router.get("/patients/drafts/{draft_id}", response_model=DraftRegistration)
+async def get_patient_draft(
+    draft_id: str,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get draft patient registration"""
+    try:
+        # This would be replaced with actual database lookup in a full implementation
+        # For now, we'll return a not found error as the frontend will fall back to localStorage
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Draft not found"
+        )
+        
+    except HTTPException:
+        # Pass through the HTTP exception
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch draft registration"
+        )
+
+@router.patch("/appointments/{appointment_id}/priority")
+async def update_appointment_priority(
+    appointment_id: UUID,
+    priority_data: dict,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update patient appointment priority"""
+    try:
+        result = await db.execute(
+            select(Appointment).where(Appointment.id == appointment_id)
+        )
+        appointment = result.scalar_one_or_none()
+        
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found"
+            )
+        
+        # Update urgency level
+        urgency = priority_data.get("urgency")
+        if not urgency or urgency not in [e.value for e in UrgencyLevel]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid urgency level"
+            )
+        
+        appointment.urgency_level = UrgencyLevel(urgency)
+        
+        # Update queue priority if in queue
+        if appointment.queue_entry:
+            appointment.queue_entry.priority_score = await QueueService.calculate_priority_score(
+                UrgencyLevel(urgency), appointment.appointment_date
+            )
+            
+        # Save changes
+        appointment.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(appointment)
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="UPDATE_PRIORITY",
+            resource="appointment",
+            resource_id=appointment.id,
+            details=f"Staff {current_user.username} updated priority for appointment {appointment_id}",
+            db=db
+        )
+        
+        return {
+            "id": appointment_id,
+            "urgency": appointment.urgency_level.value,
+            "updated_at": appointment.updated_at.isoformat() if appointment.updated_at else None
+        }
+        
+    except HTTPException:
+        # Pass through the HTTP exception
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update appointment priority: {str(e)}"
+        )
+
+@router.post("/appointments/{appointment_id}/cancel")
+async def cancel_appointment(
+    appointment_id: UUID,
+    cancel_data: dict,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Cancel an appointment and remove from queue"""
+    try:
+        result = await db.execute(
+            select(Appointment).where(Appointment.id == appointment_id)
+        )
+        appointment = result.scalar_one_or_none()
+        
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found"
+            )
+        
+        # Update appointment status
+        appointment.status = AppointmentStatus.CANCELLED
+        appointment.updated_at = datetime.utcnow()
+        
+        # Add cancellation reason if provided
+        reason = cancel_data.get("reason", "Cancelled by staff")
+        appointment.notes = f"Cancelled: {reason}" if not appointment.notes else f"{appointment.notes}\nCancelled: {reason}"
+        
+        # Remove from queue if in queue
+        if appointment.queue_entry:
+            appointment.queue_entry.status = QueueStatus.CANCELLED
+            appointment.queue_entry.updated_at = datetime.utcnow()
+        
+        # Save changes
+        await db.commit()
+        await db.refresh(appointment)
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="CANCEL_APPOINTMENT",
+            resource="appointment",
+            resource_id=appointment.id,
+            details=f"Staff {current_user.username} cancelled appointment {appointment_id}",
+            db=db
+        )
+        
+        # Notify patient if needed
+        if hasattr(appointment, 'patient') and appointment.patient:
+            background_tasks.add_task(
+                NotificationService.send_appointment_cancelled,
+                appointment.patient.phone_number,
+                {
+                    'patient_name': f"{appointment.patient.first_name} {appointment.patient.last_name}",
+                    'appointment_id': str(appointment.id),
+                    'reason': reason
+                }
+            )
+        
+        return {
+            "id": str(appointment_id),
+            "status": appointment.status.value,
+            "updated_at": appointment.updated_at.isoformat() if appointment.updated_at else None
+        }
+        
+    except HTTPException:
+        # Pass through the HTTP exception
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel appointment: {str(e)}"
+        )
+
+@router.post("/notifications", response_model=Notification)
+async def create_notification(
+    notification_data: NotificationCreate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create and send a notification"""
+    try:
+        notification = await NotificationService.create_notification(db, notification_data)
+        
+        # Send notification based on type
+        if notification.type == NotificationType.SMS:
+            success = await NotificationService.send_sms_notification(
+                notification.recipient,
+                notification.message
+            )
+        elif notification.type == NotificationType.PUSH:
+            # Get device token if patient_id is provided
+            if notification.patient_id:
+                result = await db.execute(
+                    select(DeviceToken)
+                    .where(
+                        and_(
+                            DeviceToken.patient_id == notification.patient_id,
+                            DeviceToken.is_active == True
+                        )
+                    )
+                    .order_by(desc(DeviceToken.created_at))
+                    .limit(1)
+                )
+                device_token = result.scalar_one_or_none()
+                
+                if device_token:
+                    success = await NotificationService.send_push_notification(
+                        device_token.token,
+                        notification.subject or "Notification",
+                        notification.message
+                    )
+                else:
+                    success = False
+                    notification.error_message = "No active device token found"
+            else:
+                success = False
+                notification.error_message = "Patient ID required for push notifications"
+        else:
+            # For other notification types (email, system)
+            success = True  # Assume success for now
+        
+        # Update notification status
+        notification.status = "sent" if success else "failed"
+        notification.sent_at = datetime.utcnow() if success else None
+        await db.commit()
+        await db.refresh(notification)
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="CREATE",
+            resource="notification",
+            resource_id=notification.id,
+            details=f"Staff {current_user.username} created notification for {notification.recipient}",
+            db=db
+        )
+        
+        return notification
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create notification: {str(e)}"
+        )
+
+@router.post("/notifications/bulk", response_model=List[Notification])
+async def create_bulk_notifications(
+    bulk_data: NotificationBulkCreate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create and send multiple notifications"""
+    try:
+        notifications = await NotificationService.create_bulk_notifications(db, bulk_data)
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="CREATE",
+            resource="notification",
+            details=f"Staff {current_user.username} created {len(notifications)} bulk notifications",
+            db=db
+        )
+        
+        return notifications
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create bulk notifications: {str(e)}"
+        )
+
+@router.get("/notifications", response_model=List[Notification])
+async def get_notifications(
+    skip: int = 0,
+    limit: int = 50,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all notifications"""
+    try:
+        notifications = await NotificationService.get_notifications(db, skip=skip, limit=limit)
+        return notifications
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get notifications: {str(e)}"
+        )
+
+@router.get("/notifications/patient/{patient_id}", response_model=List[Notification])
+async def get_patient_notifications(
+    patient_id: UUID,
+    skip: int = 0,
+    limit: int = 50,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get notifications for a specific patient"""
+    try:
+        # Check if patient exists
+        patient = await PatientService.get_patient(db, patient_id)
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Patient not found"
+            )
+        
+        notifications = await NotificationService.get_notifications(
+            db, patient_id=patient_id, skip=skip, limit=limit
+        )
+        return notifications
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get patient notifications: {str(e)}"
+        )
+
+@router.post("/notifications/templates", response_model=NotificationTemplate)
+async def create_notification_template(
+    template_data: NotificationTemplateCreate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a notification template"""
+    try:
+        template = await NotificationService.create_template(
+            db, template_data, created_by=current_user.id
+        )
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="CREATE",
+            resource="notification_template",
+            resource_id=template.id,
+            details=f"Staff {current_user.username} created notification template '{template.name}'",
+            db=db
+        )
+        
+        return template
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create notification template: {str(e)}"
+        )
+
+@router.get("/notifications/templates", response_model=List[NotificationTemplate])
+async def get_notification_templates(
+    skip: int = 0,
+    limit: int = 50,
+    active_only: bool = True,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all notification templates"""
+    try:
+        templates = await NotificationService.get_templates(
+            db, skip=skip, limit=limit, active_only=active_only
+        )
+        return templates
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get notification templates: {str(e)}"
+        )
+
+@router.get("/notifications/templates/{template_id}", response_model=NotificationTemplate)
+async def get_notification_template(
+    template_id: UUID,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get a specific notification template"""
+    try:
+        template = await NotificationService.get_template(db, template_id)
+        if not template:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification template not found"
+            )
+        return template
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get notification template: {str(e)}"
+        )
+
+@router.put("/notifications/templates/{template_id}", response_model=NotificationTemplate)
+async def update_notification_template(
+    template_id: UUID,
+    template_data: NotificationTemplateUpdate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update a notification template"""
+    try:
+        template = await NotificationService.update_template(db, template_id, template_data)
+        if not template:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification template not found"
+            )
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="UPDATE",
+            resource="notification_template",
+            resource_id=template.id,
+            details=f"Staff {current_user.username} updated notification template '{template.name}'",
+            db=db
+        )
+        
+        return template
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update notification template: {str(e)}"
+        )
+
+@router.delete("/notifications/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_notification_template(
+    template_id: UUID,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a notification template (soft delete)"""
+    try:
+        success = await NotificationService.delete_template(db, template_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification template not found"
+            )
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="DELETE",
+            resource="notification_template",
+            resource_id=template_id,
+            details=f"Staff {current_user.username} deleted notification template",
+            db=db
+        )
+        
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete notification template: {str(e)}"
+        )
+
+@router.post("/notifications/send-from-template", response_model=Notification)
+async def send_notification_from_template(
+    template_request: NotificationFromTemplate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Send a notification using a template"""
+    try:
+        notification = await NotificationService.send_notification_from_template(
+            db, template_request
+        )
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="CREATE",
+            resource="notification",
+            resource_id=notification.id,
+            details=f"Staff {current_user.username} sent notification from template to {notification.recipient}",
+            db=db
+        )
+        
+        return notification
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to send notification from template: {str(e)}"
+        )
