@@ -18,6 +18,8 @@ const Dashboard = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isAvailable, setIsAvailable] = useState(true);
   const [doctorProfile, setDoctorProfile] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [lastFetchTime, setLastFetchTime] = useState(0);
 
   // Fetch doctor profile on mount
   useEffect(() => {
@@ -27,9 +29,22 @@ const Dashboard = () => {
         if (response.success && response.data) {
           setDoctorProfile(response.data);
           setIsAvailable(response.data.isAvailable);
+        } else {
+          setError(response.error || 'Failed to load doctor profile');
+          toast({
+            title: 'Error',
+            description: response.error || 'Failed to load doctor profile',
+            variant: 'destructive',
+          });
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error fetching doctor profile:', error);
+        setError('Failed to load doctor profile');
+        toast({
+          title: 'Error',
+          description: error.message || 'Failed to load doctor profile',
+          variant: 'destructive',
+        });
       }
     };
 
@@ -37,32 +52,53 @@ const Dashboard = () => {
   }, []);
 
   const fetchQueue = useCallback(async () => {
+    // Prevent excessive API calls by limiting frequency to once per second
+    const now = Date.now();
+    if (now - lastFetchTime < 1000) {
+      return;
+    }
+    
+    setLastFetchTime(now);
+    
     try {
       setIsLoading(true);
+      setError(null);
+      
+      // If doctor is unavailable, don't fetch queue
+      if (!isAvailable) {
+        setPatients([]);
+        setIsLoading(false);
+        return;
+      }
+      
       const response = await doctorService.getDoctorQueue();
       
-      if (response.success && response.data) {
-        // If doctor is unavailable, don't show any patients
-        if (!isAvailable) {
-          setPatients([]);
-        } else {
-          setPatients(response.data);
-        }
+      if (response.success) {
+        setPatients(response.data || []);
+      } else {
+        setError(response.error || 'Failed to load patient queue');
+        toast({
+          title: 'Error',
+          description: response.error || 'Failed to load patient queue',
+          variant: 'destructive',
+        });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching queue:', error);
+      setError('Failed to load patient queue');
       toast({
         title: 'Error',
-        description: 'Failed to load patient queue. Please try again.',
+        description: error.message || 'Failed to load patient queue',
         variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
     }
-  }, [isAvailable]);
+  }, [isAvailable, lastFetchTime]);
 
   useEffect(() => {
     fetchQueue();
+    
     // Poll the queue every 30 seconds
     const interval = setInterval(() => {
       fetchQueue();
@@ -79,17 +115,26 @@ const Dashboard = () => {
 
   const handlePatientSeen = async (patientId: string) => {
     try {
-      await doctorService.markPatientSeen(patientId);
-      // Remove the patient from the queue
-      setPatients(patients.filter(patient => patient.id !== patientId));
-      toast({
-        title: 'Patient Marked as Seen',
-        description: 'The patient has been removed from your queue.',
-      });
-    } catch (error) {
+      const response = await doctorService.markPatientSeen(patientId);
+      
+      if (response.success) {
+        // Remove the patient from the queue
+        setPatients(patients.filter(patient => patient.id !== patientId));
+        toast({
+          title: 'Patient Marked as Seen',
+          description: 'The patient has been removed from your queue.',
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: response.error || 'Failed to mark patient as seen',
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
       toast({
         title: 'Error',
-        description: 'Failed to mark patient as seen. Please try again.',
+        description: error.message || 'Failed to mark patient as seen',
         variant: 'destructive',
       });
     }
@@ -97,18 +142,26 @@ const Dashboard = () => {
 
   const handlePatientSkipped = async (patientId: string) => {
     try {
-      await doctorService.skipPatient(patientId);
-      // Remove the patient from the queue for now
-      // In a real app, you might move them elsewhere or flag them
-      setPatients(patients.filter(patient => patient.id !== patientId));
-      toast({
-        title: 'Patient Skipped',
-        description: 'The patient has been skipped in your queue.',
-      });
-    } catch (error) {
+      const response = await doctorService.skipPatient(patientId);
+      
+      if (response.success) {
+        // Remove the patient from the queue
+        setPatients(patients.filter(patient => patient.id !== patientId));
+        toast({
+          title: 'Patient Skipped',
+          description: 'The patient has been skipped in your queue.',
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: response.error || 'Failed to skip patient',
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
       toast({
         title: 'Error',
-        description: 'Failed to skip patient. Please try again.',
+        description: error.message || 'Failed to skip patient',
         variant: 'destructive',
       });
     }
@@ -163,18 +216,29 @@ const Dashboard = () => {
                   Use the toggle on the right to change your status when you're ready.
                 </p>
               </div>
+            ) : error ? (
+              <div className="bg-white p-8 rounded-lg shadow text-center">
+                <h3 className="text-xl font-medium text-red-700 mb-2">Error Loading Queue</h3>
+                <p className="text-gray-500 mb-4">{error}</p>
+                <Button onClick={handleRefresh} variant="outline">
+                  Try Again
+                </Button>
+              </div>
             ) : (
-            <QueueTable
-              patients={patients}
-              isLoading={isLoading}
-              onPatientSeen={handlePatientSeen}
-              onPatientSkipped={handlePatientSkipped}
-              refreshQueue={handleRefresh}
-            />
+              <QueueTable
+                patients={patients}
+                isLoading={isLoading}
+                onPatientSeen={handlePatientSeen}
+                onPatientSkipped={handlePatientSkipped}
+                refreshQueue={handleRefresh}
+              />
             )}
           </div>
           <div className="lg:col-span-1">
-            <AvailabilityToggle onStatusChange={handleStatusChange} />
+            <AvailabilityToggle 
+              onStatusChange={handleStatusChange}
+              initialAvailability={isAvailable}
+            />
           </div>
         </div>
       </main>

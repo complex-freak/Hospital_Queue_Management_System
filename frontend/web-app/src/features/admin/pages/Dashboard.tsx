@@ -1,13 +1,36 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/use-auth-context';
 import AdminLayout from '../components/AdminLayout';
 import MetricsOverview from '../components/MetricsOverview';
 import RecentActivity from '../components/RecentActivity';
+import { adminService } from '@/services/api';
+import { Loader2 } from 'lucide-react';
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    const fetchDashboardStats = async () => {
+      try {
+        const response = await adminService.getDashboardStats();
+        if (response.success) {
+          setStats(response.data);
+        } else {
+          console.error('Failed to fetch dashboard stats:', response.error);
+        }
+      } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchDashboardStats();
+  }, []);
 
   return (
     <AdminLayout>
@@ -21,7 +44,7 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
         
-        <Tabs defaultValue="overview" className="space-y-4">
+        <Tabs defaultValue="overview">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
@@ -32,81 +55,89 @@ const AdminDashboard: React.FC = () => {
             <MetricsOverview />
             
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    Total Patients
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">1,248</div>
-                  <p className="text-xs text-muted-foreground">
-                    +15% from last month
-                  </p>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    Active Doctors
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">12</div>
-                  <p className="text-xs text-muted-foreground">
-                    +2 new this month
-                  </p>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    Average Wait Time
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">24 min</div>
-                  <p className="text-xs text-muted-foreground">
-                    -8% from last week
-                  </p>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    System Uptime
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">99.9%</div>
-                  <p className="text-xs text-muted-foreground">
-                    Last 30 days
-                  </p>
-                </CardContent>
-              </Card>
+              {loading ? (
+                <Card className="col-span-4 h-[150px] flex items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </Card>
+              ) : (
+                <>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">
+                        Total Patients
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{stats?.totalPatients || 0}</div>
+                      <p className="text-xs text-muted-foreground">
+                        {stats?.activePatients || 0} active patients
+                      </p>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">
+                        Active Doctors
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{stats?.activeDoctors || 0}</div>
+                      <p className="text-xs text-muted-foreground">
+                        of {stats?.totalDoctors || 0} total doctors
+                      </p>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">
+                        Today's Appointments
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{stats?.appointmentsToday || 0}</div>
+                      <p className="text-xs text-muted-foreground">
+                        {stats?.queueLength || 0} patients in queue
+                      </p>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">
+                        Avg. Wait Time
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{stats?.averageWaitTime || 0} min</div>
+                      <p className="text-xs text-muted-foreground">
+                        System uptime: {stats?.systemUptime || 0} days
+                      </p>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
             </div>
           </TabsContent>
           
-          <TabsContent value="analytics" className="space-y-4">
+          <TabsContent value="analytics">
             <Card>
               <CardHeader>
                 <CardTitle>Analytics</CardTitle>
                 <CardDescription>
-                  Detailed analytics will be implemented in the next phase.
+                  Detailed system analytics and trends
                 </CardDescription>
               </CardHeader>
-              <CardContent className="pl-2">
-                <div className="h-[200px] flex items-center justify-center text-muted-foreground">
-                  Analytics charts will appear here
+              <CardContent>
+                <div className="h-[400px] flex items-center justify-center text-muted-foreground">
+                  <p>Analytics will be implemented in the next phase</p>
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
           
-          <TabsContent value="activity" className="space-y-4">
+          <TabsContent value="activity">
             <RecentActivity />
           </TabsContent>
         </Tabs>

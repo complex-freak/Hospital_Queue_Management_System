@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,7 +35,8 @@ import {
   Trash2, 
   MoreHorizontal, 
   UserCheck,
-  UserX
+  UserX,
+  Loader2
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -47,67 +48,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from '@/hooks/use-toast';
 import AdminLayout from '../components/AdminLayout';
+import { userService, UserData } from '@/services/api/user-service';
 
-// Mock user data
-const mockUsers = [
-  {
-    id: '1',
-    name: 'Dr. Jane Smith',
-    email: 'jane.smith@hospital.com',
-    role: 'doctor',
-    department: 'Cardiology',
-    status: 'active',
-    lastActive: '2023-08-15T10:30:00Z'
-  },
-  {
-    id: '2',
-    name: 'Dr. John Doe',
-    email: 'john.doe@hospital.com',
-    role: 'doctor',
-    department: 'Neurology',
-    status: 'active',
-    lastActive: '2023-08-15T09:45:00Z'
-  },
-  {
-    id: '3',
-    name: 'Robert Johnson',
-    email: 'robert.johnson@hospital.com',
-    role: 'receptionist',
-    department: 'Front Desk',
-    status: 'active',
-    lastActive: '2023-08-15T11:20:00Z'
-  },
-  {
-    id: '4',
-    name: 'Sarah Williams',
-    email: 'sarah.williams@hospital.com',
-    role: 'doctor',
-    department: 'Pediatrics',
-    status: 'inactive',
-    lastActive: '2023-07-28T14:15:00Z'
-  },
-  {
-    id: '5',
-    name: 'Michael Brown',
-    email: 'michael.brown@hospital.com',
-    role: 'receptionist',
-    department: 'Emergency',
-    status: 'active',
-    lastActive: '2023-08-14T16:30:00Z'
-  },
-  {
-    id: '6',
-    name: 'Admin User',
-    email: 'admin@hospital.com',
-    role: 'admin',
-    department: 'IT',
-    status: 'active',
-    lastActive: '2023-08-15T08:00:00Z'
-  }
-];
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  department: string;
+  status: 'active' | 'inactive';
+  lastActive: string;
+}
 
 const UserManagement: React.FC = () => {
-  const [users, setUsers] = useState(mockUsers);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -115,26 +70,67 @@ const UserManagement: React.FC = () => {
   const [newUser, setNewUser] = useState({
     name: '',
     email: '',
+    username: '',
+    password: '',
     role: 'doctor',
     department: '',
-    status: 'active'
+    status: 'active' as 'active' | 'inactive'
   });
   
-  // Filter users based on search term and filters
+  // Load users from API
+  useEffect(() => {
+    fetchUsers();
+  }, [roleFilter, statusFilter]);
+  
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+      const response = await userService.getUsers(roleFilter, statusFilter);
+      
+      if (response.success) {
+        // Transform API response to match our component's user format
+        const transformedUsers = response.data.map((user: any) => ({
+          id: user.id,
+          name: user.fullName || `${user.firstName} ${user.lastName}`,
+          email: user.email || '',
+          role: user.role || 'staff',
+          department: user.department || 'General',
+          status: user.status || (user.is_active ? 'active' : 'inactive'),
+          lastActive: user.lastActive || user.updated_at || user.created_at || new Date().toISOString()
+        }));
+        
+        setUsers(transformedUsers);
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to load users",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load users. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Filter users based on search term
   const filteredUsers = users.filter(user => {
     const matchesSearch = 
       user.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       user.email.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-    const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
-    
-    return matchesSearch && matchesRole && matchesStatus;
+    return matchesSearch;
   });
   
-  const handleAddUser = () => {
+  const handleAddUser = async () => {
     // Validate form
-    if (!newUser.name || !newUser.email || !newUser.department) {
+    if (!newUser.name || !newUser.email || !newUser.username || !newUser.password || !newUser.department) {
       toast({
         title: "Validation Error",
         description: "Please fill in all required fields.",
@@ -143,85 +139,189 @@ const UserManagement: React.FC = () => {
       return;
     }
     
-    // Add new user
-    const newId = (Math.max(...users.map(u => parseInt(u.id))) + 1).toString();
-    const userToAdd = {
-      ...newUser,
-      id: newId,
-      lastActive: new Date().toISOString()
+    // Split name into first and last name
+    const nameParts = newUser.name.trim().split(' ');
+    const firstName = nameParts[0];
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+    
+    // Create user data for API
+    const userData: UserData = {
+      firstName,
+      lastName,
+      email: newUser.email,
+      username: newUser.username,
+      password: newUser.password,
+      role: newUser.role,
+      department: newUser.department,
+      status: newUser.status
     };
     
-    setUsers([...users, userToAdd]);
-    setIsNewUserDialogOpen(false);
-    setNewUser({
-      name: '',
-      email: '',
-      role: 'doctor',
-      department: '',
-      status: 'active'
-    });
-    
-    toast({
-      title: "User Added",
-      description: `${newUser.name} has been added successfully.`
-    });
-  };
-  
-  const handleDeleteUser = (userId: string) => {
-    setUsers(users.filter(user => user.id !== userId));
-    toast({
-      title: "User Deleted",
-      description: "The user has been removed from the system."
-    });
-  };
-  
-  const handleToggleUserStatus = (userId: string) => {
-    setUsers(users.map(user => {
-      if (user.id === userId) {
-        const newStatus = user.status === 'active' ? 'inactive' : 'active';
-        return { ...user, status: newStatus };
+    try {
+      const response = await userService.createUser(userData);
+      
+      if (response.success) {
+        // Add the new user to the list
+        const createdUser = response.data;
+        const newUserEntry = {
+          id: createdUser.id,
+          name: `${createdUser.firstName} ${createdUser.lastName}`,
+          email: createdUser.email || '',
+          role: createdUser.role || 'staff',
+          department: newUser.department,
+          status: newUser.status,
+          lastActive: new Date().toISOString()
+        };
+        
+        setUsers([...users, newUserEntry]);
+        setIsNewUserDialogOpen(false);
+        setNewUser({
+          name: '',
+          email: '',
+          username: '',
+          password: '',
+          role: 'doctor',
+          department: '',
+          status: 'active'
+        });
+        
+        toast({
+          title: "User Added",
+          description: `${newUser.name} has been added successfully.`
+        });
+        
+        // Refresh the user list
+        fetchUsers();
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to create user",
+          variant: "destructive"
+        });
       }
-      return user;
-    }));
-    
+    } catch (error) {
+      console.error('Error creating user:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create user. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      const response = await userService.deleteUser(userId);
+      
+      if (response.success) {
+        // Remove user from the list
+        setUsers(users.filter(user => user.id !== userId));
+        
+        toast({
+          title: "User Deleted",
+          description: "User has been deleted successfully."
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "Failed to delete user",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete user. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  const handleToggleUserStatus = async (userId: string) => {
     const user = users.find(u => u.id === userId);
-    const newStatus = user?.status === 'active' ? 'inactive' : 'active';
+    if (!user) return;
     
-    toast({
-      title: "Status Updated",
-      description: `User is now ${newStatus}.`
-    });
-  };
-  
-  const getStatusBadge = (status: string) => {
-    if (status === 'active') {
-      return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Active</Badge>;
+    const newStatus = user.status === 'active' ? 'inactive' : 'active';
+    
+    try {
+      const response = await userService.toggleUserStatus(userId, newStatus === 'active');
+      
+      if (response.success) {
+        // Update user in the list
+        setUsers(users.map(u => 
+          u.id === userId 
+            ? { ...u, status: newStatus } 
+            : u
+        ));
+        
+        toast({
+          title: "Status Updated",
+          description: `User is now ${newStatus}.`
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || `Failed to ${newStatus === 'active' ? 'activate' : 'deactivate'} user`,
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling user status:', error);
+      toast({
+        title: "Error",
+        description: `Failed to update user status. Please try again.`,
+        variant: "destructive"
+      });
     }
-    return <Badge variant="outline" className="bg-gray-100 text-gray-500 border-gray-200">Inactive</Badge>;
   };
   
-  const getRoleBadge = (role: string) => {
-    switch (role) {
-      case 'doctor':
-        return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Doctor</Badge>;
-      case 'receptionist':
-        return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">Receptionist</Badge>;
-      case 'admin':
-        return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Admin</Badge>;
-      default:
-        return <Badge variant="outline">{role}</Badge>;
-    }
-  };
-  
+  // Format date for display
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric'
-    }).format(date);
+    try {
+      const date = new Date(dateString);
+      return new Intl.DateTimeFormat('en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      }).format(date);
+    } catch (e) {
+      return 'Invalid date';
+    }
+  };
+  
+  // Get role badge with appropriate color
+  const getRoleBadge = (role: string) => {
+    let variant = "outline";
+    
+    switch (role.toLowerCase()) {
+      case 'admin':
+        variant = "destructive";
+        break;
+      case 'doctor':
+        variant = "default";
+        break;
+      case 'receptionist':
+        variant = "secondary";
+        break;
+      default:
+        variant = "outline";
+    }
+    
+    return (
+      <Badge variant={variant as any}>
+        {role.charAt(0).toUpperCase() + role.slice(1)}
+      </Badge>
+    );
+  };
+  
+  // Get status badge with appropriate color
+  const getStatusBadge = (status: string) => {
+    const variant = status === 'active' ? "success" : "secondary";
+    
+    return (
+      <Badge variant={variant as any}>
+        {status.charAt(0).toUpperCase() + status.slice(1)}
+      </Badge>
+    );
   };
 
   return (
@@ -244,6 +344,7 @@ const UserManagement: React.FC = () => {
                   Create a new user account in the system.
                 </DialogDescription>
               </DialogHeader>
+              
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="name" className="text-right">
@@ -253,6 +354,29 @@ const UserManagement: React.FC = () => {
                     id="name"
                     value={newUser.name}
                     onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="username" className="text-right">
+                    Username
+                  </Label>
+                  <Input
+                    id="username"
+                    value={newUser.username}
+                    onChange={(e) => setNewUser({...newUser, username: e.target.value})}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="password" className="text-right">
+                    Password
+                  </Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({...newUser, password: e.target.value})}
                     className="col-span-3"
                   />
                 </div>
@@ -303,7 +427,7 @@ const UserManagement: React.FC = () => {
                   </Label>
                   <Select 
                     value={newUser.status} 
-                    onValueChange={(value) => setNewUser({...newUser, status: value})}
+                    onValueChange={(value: 'active' | 'inactive') => setNewUser({...newUser, status: value})}
                   >
                     <SelectTrigger className="col-span-3">
                       <SelectValue placeholder="Select status" />
@@ -390,13 +514,22 @@ const UserManagement: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUsers.length === 0 ? (
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="h-24 text-center">
+                        <div className="flex justify-center items-center">
+                          <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                          Loading users...
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredUsers.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} className="h-24 text-center">
                         No users found.
                       </TableCell>
                     </TableRow>
-                  ) : (
+                  ) :
                     filteredUsers.map((user) => (
                       <TableRow key={user.id}>
                         <TableCell className="font-medium">{user.name}</TableCell>
@@ -412,7 +545,7 @@ const UserManagement: React.FC = () => {
                                 <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
+                            <DropdownMenuContent>
                               <DropdownMenuLabel>Actions</DropdownMenuLabel>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem>
@@ -444,24 +577,11 @@ const UserManagement: React.FC = () => {
                         </TableCell>
                       </TableRow>
                     ))
-                  )}
+                  }
                 </TableBody>
               </Table>
             </div>
           </CardContent>
-          <CardFooter className="flex justify-between">
-            <div className="text-sm text-muted-foreground">
-              Showing {filteredUsers.length} of {users.length} users
-            </div>
-            <div className="flex items-center space-x-2">
-              <Button variant="outline" size="sm" disabled>
-                Previous
-              </Button>
-              <Button variant="outline" size="sm" disabled>
-                Next
-              </Button>
-            </div>
-          </CardFooter>
         </Card>
       </div>
     </AdminLayout>

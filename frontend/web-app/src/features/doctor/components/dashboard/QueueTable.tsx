@@ -8,7 +8,7 @@ import { Loader } from '@/components/ui/loader';
 import { apiService } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
-import { BadgeCheck, SkipForward, Bell, FileText, ClipboardList } from 'lucide-react';
+import { BadgeCheck, SkipForward, Bell, FileText, ClipboardList, RefreshCw } from 'lucide-react';
 import PatientDetailsViewer from './PatientDetailsViewer';
 import ConsultationFeedbackForm from './ConsultationFeedbackForm';
 import QueueFilters, { QueueFiltersState } from './QueueFilters';
@@ -174,11 +174,19 @@ const QueueTable: React.FC<QueueTableProps> = ({
     );
   }
 
-  if (patients.length === 0) {
+  if (!patients || patients.length === 0) {
     return (
       <div className="flex h-64 flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center">
         <div className="text-3xl font-light text-gray-400">No patients in queue</div>
         <p className="mt-2 text-gray-500">Your queue is currently empty. Enjoy the quiet moment!</p>
+        <Button 
+          variant="outline" 
+          className="mt-4"
+          onClick={refreshQueue}
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh Queue
+        </Button>
       </div>
     );
   }

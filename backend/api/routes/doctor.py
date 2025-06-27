@@ -139,17 +139,24 @@ async def get_current_doctor(
         if not doctor:
             print(f"Creating doctor profile for user {current_user.username} ({current_user.id})")
             
-            # Create doctor profile
+            # Create doctor profile with a new UUID
+            new_doctor_id = uuid.uuid4()
             stmt = insert(Doctor).values(
+                id=new_doctor_id,
                 user_id=current_user.id,
                 specialization="General Medicine",  # Default values
                 department="General Practice",
                 is_available=True
-            ).returning(Doctor)
+            )
             
-            result = await db.execute(stmt)
-            doctor = result.scalar_one()
+            await db.execute(stmt)
             await db.commit()
+            
+            # Fetch the newly created doctor
+            result = await db.execute(
+                select(Doctor).where(Doctor.id == new_doctor_id)
+            )
+            doctor = result.scalar_one()
             print(f"Created doctor profile with ID {doctor.id}")
         
         # Manually set the user attribute to avoid relationship loading errors

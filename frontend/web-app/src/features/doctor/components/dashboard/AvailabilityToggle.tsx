@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -11,22 +11,30 @@ import { Clock } from 'lucide-react';
 
 interface AvailabilityToggleProps {
   onStatusChange: (isAvailable: boolean) => void;
+  initialAvailability?: boolean;
 }
 
 const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({ 
-  onStatusChange 
+  onStatusChange,
+  initialAvailability = true
 }) => {
-  const [isAvailable, setIsAvailable] = useState(true);
+  const [isAvailable, setIsAvailable] = useState(initialAvailability);
   const [shiftStart, setShiftStart] = useState('09:00');
   const [shiftEnd, setShiftEnd] = useState('17:00');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const initialFetchDone = useRef(false);
 
   // Fetch current doctor status on component mount
   useEffect(() => {
     const fetchDoctorStatus = async () => {
+      // Skip if we already did the initial fetch
+      if (initialFetchDone.current) return;
+      
       try {
         setIsLoading(true);
+        setError(null);
         const response = await doctorService.getDoctorProfile();
         
         if (response.success && response.data) {
@@ -41,14 +49,26 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
             setShiftEnd(formatTimeForInput(response.data.shiftEnd));
           }
           
-          // Notify parent component of current availability
-          onStatusChange(response.data.isAvailable);
+          // Only notify parent if the value is different from what we already have
+          if (response.data.isAvailable !== isAvailable) {
+            onStatusChange(response.data.isAvailable);
+          }
+          
+          initialFetchDone.current = true;
+        } else {
+          setError(response.error || 'Failed to load doctor status');
+          toast({
+            title: 'Error',
+            description: response.error || 'Failed to load doctor status',
+            variant: 'destructive',
+          });
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error fetching doctor status:', error);
+        setError('Could not load your current status');
         toast({
           title: 'Error',
-          description: 'Could not load your current status.',
+          description: error.message || 'Could not load your current status',
           variant: 'destructive',
         });
       } finally {
@@ -57,7 +77,14 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
     };
     
     fetchDoctorStatus();
-  }, [onStatusChange]);
+  }, []);
+
+  // Update local state when initialAvailability changes
+  useEffect(() => {
+    if (initialAvailability !== isAvailable && initialFetchDone.current) {
+      setIsAvailable(initialAvailability);
+    }
+  }, [initialAvailability]);
 
   // Format time from API (string) to input time format (HH:MM)
   const formatTimeForInput = (timeString: string): string => {
@@ -83,6 +110,8 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
 
   const toggleAvailability = async (checked: boolean) => {
     setIsUpdating(true);
+    setError(null);
+    
     try {
       const response = await doctorService.updateStatus({
         isAvailable: checked,
@@ -91,26 +120,28 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
       });
       
       if (response.success) {
-      setIsAvailable(checked);
-      onStatusChange(checked);
-      
-      toast({
-        title: checked ? "You're Now Available" : "You're Now Unavailable",
-        description: checked 
-          ? `You're on duty until ${shiftEnd}`
-          : "Your queue is paused. Patients won't be directed to you.",
-      });
+        setIsAvailable(checked);
+        onStatusChange(checked);
+        
+        toast({
+          title: checked ? "You're Now Available" : "You're Now Unavailable",
+          description: checked 
+            ? `You're on duty until ${shiftEnd}`
+            : "Your queue is paused. Patients won't be directed to you.",
+        });
       } else {
+        setError(response.error || "Could not update your availability status");
         toast({
           title: "Status Update Failed",
           description: response.error || "Could not update your availability status.",
           variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch (error: any) {
+      setError("Could not update your availability status");
       toast({
         title: "Status Update Failed",
-        description: "Could not update your availability status. Please try again.",
+        description: error.message || "Could not update your availability status. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -121,6 +152,8 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
   const updateShiftTimes = async () => {
     if (isAvailable) {
       setIsUpdating(true);
+      setError(null);
+      
       try {
         const response = await doctorService.updateStatus({
           isAvailable: true,
@@ -129,21 +162,23 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
         });
         
         if (response.success) {
-        toast({
-          title: "Shift Updated",
-          description: `Your shift time is now set from ${shiftStart} to ${shiftEnd}`,
-        });
+          toast({
+            title: "Shift Updated",
+            description: `Your shift time is now set from ${shiftStart} to ${shiftEnd}`,
+          });
         } else {
+          setError(response.error || "Could not update your shift time");
           toast({
             title: "Shift Update Failed",
             description: response.error || "Could not update your shift time.",
             variant: "destructive",
           });
         }
-      } catch (error) {
+      } catch (error: any) {
+        setError("Could not update your shift time");
         toast({
           title: "Shift Update Failed",
-          description: "Could not update your shift time. Please try again.",
+          description: error.message || "Could not update your shift time. Please try again.",
           variant: "destructive",
         });
       } finally {
@@ -160,6 +195,25 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
         </CardHeader>
         <CardContent className="flex items-center justify-center py-6">
           <Loader className="h-8 w-8" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="border-red-200">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-medium">Availability Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-red-600 mb-4">{error}</div>
+          <Button 
+            onClick={() => window.location.reload()}
+            className="w-full"
+          >
+            Reload
+          </Button>
         </CardContent>
       </Card>
     );

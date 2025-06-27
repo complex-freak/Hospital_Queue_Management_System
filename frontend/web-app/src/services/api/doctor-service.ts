@@ -10,6 +10,25 @@ import {
   transformToBackendConsultationFeedback
 } from './data-transformers';
 
+// Debounce helper
+const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) => {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  const debounced = (...args: Parameters<F>) => {
+    if (timeout !== null) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
+    timeout = setTimeout(() => func(...args), waitFor);
+  };
+
+  return debounced;
+};
+
+// Store last update time to throttle requests
+let lastStatusUpdateTime = 0;
+const STATUS_UPDATE_THROTTLE = 1000; // 1 second
+
 export const doctorService = {
   // Get doctor profile
   getDoctorProfile: async () => {
@@ -48,6 +67,18 @@ export const doctorService = {
     try {
       const user = authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
+      
+      // Throttle requests to prevent excessive API calls
+      const now = Date.now();
+      if (now - lastStatusUpdateTime < STATUS_UPDATE_THROTTLE) {
+        console.log('Throttling status update request');
+        return {
+          success: false,
+          error: 'Please wait before updating status again'
+        };
+      }
+      
+      lastStatusUpdateTime = now;
 
       const response = await api.put('/doctor/status', {
         is_available: status.isAvailable,
@@ -283,12 +314,31 @@ export const doctorService = {
 
       const response = await api.get('/doctor/queue');
       
-      return {
-        success: true,
-        data: response.data
-      };
+      // Handle empty array response
+      if (response.data && Array.isArray(response.data)) {
+        return {
+          success: true,
+          data: response.data
+        };
+      } else {
+        // If response is not an array, handle as empty queue
+        console.warn('Doctor queue API returned non-array data:', response.data);
+        return {
+          success: true,
+          data: []
+        };
+      }
     } catch (error: any) {
       console.error('Error fetching doctor queue:', error);
+      
+      // Handle 404 (no queue) as empty array rather than error
+      if (error.response?.status === 404) {
+        return {
+          success: true,
+          data: []
+        };
+      }
+      
       return {
         success: false,
         error: error.response?.data?.detail || 'Failed to fetch doctor queue',
