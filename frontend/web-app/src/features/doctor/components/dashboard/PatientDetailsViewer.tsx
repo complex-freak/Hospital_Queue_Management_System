@@ -41,8 +41,23 @@ const PatientDetailsViewer: React.FC<PatientDetailsViewerProps> = ({
       try {
         const response = await apiService.getPatientDetails(patientId);
         if (response.success && response.data) {
-          setPatient(response.data);
-          setMedicalNotes(response.data.notes || '');
+          // Transform User data to Patient format
+          const userData = response.data;
+          const patientData: Patient = {
+            id: userData.id,
+            name: userData.fullName,
+            priority: 'Medium', // Default priority
+            status: 'Waiting',
+            registeredTime: new Date(),
+            department: userData.department || 'General',
+            reason: 'Not specified',
+            checkInTime: new Date().toISOString(),
+            gender: userData.gender,
+            contactNumber: userData.phoneNumber,
+            notes: ''  // Default empty notes
+          };
+          setPatient(patientData);
+          setMedicalNotes(''); // Initialize with empty notes
         }
       } catch (error) {
         console.error('Error fetching patient details:', error);
@@ -92,12 +107,10 @@ const PatientDetailsViewer: React.FC<PatientDetailsViewerProps> = ({
     setIsSavingNotes(true);
     try {
       // Save the current notes
-      await apiService.savePatientNotes(patient.id, medicalNotes);
+      const saveResponse = await apiService.savePatientNotes(patient.id, medicalNotes);
       
-      // Add a new version to the history
-      const versionResponse = await apiService.saveNoteVersion(patient.id, medicalNotes);
-      if (versionResponse.success && versionResponse.data) {
-        setCurrentNoteVersionId(versionResponse.data.id);
+      if (saveResponse.success && saveResponse.data) {
+        setCurrentNoteVersionId(saveResponse.data.id);
         
         // If history view is open, refresh the history
         if (showHistory) {

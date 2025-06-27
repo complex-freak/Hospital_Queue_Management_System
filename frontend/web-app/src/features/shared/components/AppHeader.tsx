@@ -45,7 +45,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ title = "OPD Queue Management" })
         <div className="flex items-center space-x-4">
           <NotificationCenter />
           <span className="hidden text-sm text-gray-500 md:inline-block">
-            Welcome, {user?.name}
+            Welcome, {user?.fullName}
           </span>
           <Link to="/profile">
             <Button

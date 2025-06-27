@@ -46,7 +46,7 @@ const ProfilePage = () => {
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
-      name: user?.name || '',
+      name: user?.fullName || '',
       email: '',
       specialization: '',
       bio: '',
@@ -70,7 +70,7 @@ const ProfilePage = () => {
         // In a real app, you would fetch the doctor's profile
         // For now, we'll use the mock data from auth context
         form.reset({
-          name: user?.name || '',
+          name: user?.fullName || '',
           email: 'jane.smith@hospital.com', // Mock data
           specialization: 'General Medicine', // Mock data
           bio: 'Board certified physician with over 10 years experience in general medicine.', // Mock data
@@ -171,7 +171,7 @@ const ProfilePage = () => {
                 <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-full bg-blue-100">
                   <User className="h-12 w-12 text-blue-600" />
                 </div>
-                <CardTitle>{user?.name}</CardTitle>
+                <CardTitle>{user?.fullName}</CardTitle>
                 <CardDescription>Doctor ID: {user?.id}</CardDescription>
               </CardHeader>
               <CardContent>

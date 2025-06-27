@@ -63,7 +63,7 @@ const ConsultationFeedbackForm: React.FC<ConsultationFeedbackFormProps> = ({
         notes: data.notes || '',
       };
       
-      await apiService.submitConsultation(consultationData);
+      await apiService.submitConsultation(patientId, consultationData);
       toast({
         title: 'Consultation Submitted',
         description: 'Patient consultation feedback has been saved successfully.',

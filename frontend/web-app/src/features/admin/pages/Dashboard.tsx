@@ -16,7 +16,7 @@ const AdminDashboard: React.FC = () => {
           <h2 className="text-3xl font-bold tracking-tight">Admin Dashboard</h2>
           <div className="flex items-center space-x-2">
             <span className="text-sm text-muted-foreground">
-              Welcome back, {user?.name}
+              Welcome back, {user?.fullName}
             </span>
           </div>
         </div>
