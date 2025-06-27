@@ -8,11 +8,17 @@ class WebSocketService {
   private reconnectTimeoutId: number | null = null;
   private wsUrl: string;
   private isConnecting: boolean = false;
+  private userId: string | null = null;
+  private authToken: string | null = null;
 
   constructor() {
     // Get the WebSocket URL from environment or use a default
     this.wsUrl = import.meta.env.VITE_WS_URL || 
       `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/notifications`;
+    
+    // Listen for online/offline events
+    window.addEventListener('online', this.handleOnline.bind(this));
+    window.addEventListener('offline', this.handleOffline.bind(this));
   }
 
   // Connect to the WebSocket server
@@ -21,11 +27,21 @@ class WebSocketService {
       return;
     }
 
+    // Store credentials for reconnection
+    this.userId = userId;
+    this.authToken = authToken;
     this.isConnecting = true;
 
     try {
+      // Format token properly - remove "Bearer " prefix if present
+      const token = authToken.startsWith('Bearer ') 
+        ? authToken.substring(7) 
+        : authToken;
+      
       // Include authentication in the URL
-      const url = `${this.wsUrl}?user_id=${userId}&token=${authToken}`;
+      const url = `${this.wsUrl}?user_id=${encodeURIComponent(userId)}&token=${encodeURIComponent(token)}`;
+      console.log('Connecting to WebSocket:', url);
+      
       this.socket = new WebSocket(url);
 
       this.socket.onopen = this.handleOpen.bind(this);
@@ -53,6 +69,8 @@ class WebSocketService {
 
     this.reconnectAttempts = 0;
     this.isConnecting = false;
+    this.userId = null;
+    this.authToken = null;
   }
 
   // Send a message to the WebSocket server
@@ -64,18 +82,25 @@ class WebSocketService {
     }
   }
 
+  // Check connection status
+  public isConnected(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN;
+  }
+
   // Handle WebSocket open event
   private handleOpen(event: Event): void {
     console.log('WebSocket connection established');
     this.reconnectAttempts = 0;
     this.isConnecting = false;
     
-    // Notify the user that they are connected
-    notificationService.addNotification(
-      'Connected',
-      'Real-time notifications are now active',
-      'info'
-    );
+    // Notify the user that they are connected (only if reconnecting)
+    if (this.reconnectAttempts > 0) {
+      notificationService.addNotification(
+        'Connected',
+        'Real-time notifications are now active',
+        'info'
+      );
+    }
   }
 
   // Handle WebSocket message event
@@ -91,6 +116,8 @@ class WebSocketService {
           data.notification_type || 'info',
           data.data
         );
+      } else {
+        console.log('Received WebSocket message:', data);
       }
     } catch (error) {
       console.error('Error parsing WebSocket message:', error);
@@ -115,6 +142,21 @@ class WebSocketService {
     this.isConnecting = false;
     
     // Socket will close after an error, which will trigger reconnect
+  }
+
+  // Handle browser coming online
+  private handleOnline(): void {
+    console.log('Browser is online, attempting to reconnect WebSocket');
+    if (this.userId && this.authToken && !this.isConnected()) {
+      this.reconnectAttempts = 0; // Reset attempts when coming back online
+      this.connect(this.userId, this.authToken);
+    }
+  }
+
+  // Handle browser going offline
+  private handleOffline(): void {
+    console.log('Browser is offline, WebSocket will reconnect when online');
+    // No need to do anything, the socket will close on its own
   }
 
   // Attempt to reconnect to the WebSocket server
@@ -147,17 +189,21 @@ class WebSocketService {
 
     // Try to reconnect after the interval
     this.reconnectTimeoutId = window.setTimeout(() => {
-      // This would normally use the stored user ID and token
-      // but for simplicity, we'll let connect() handle getting those values
-      const userId = localStorage.getItem('userId') || '';
-      const token = localStorage.getItem('token') || '';
-      
-      if (userId && token) {
-        this.connect(userId, token);
+      // Use stored credentials if available
+      if (this.userId && this.authToken) {
+        this.connect(this.userId, this.authToken);
       } else {
-        console.error('Cannot reconnect: missing user ID or token');
+        // Fall back to localStorage if needed
+        const userId = localStorage.getItem('userId') || '';
+        const token = localStorage.getItem('token') || '';
+        
+        if (userId && token) {
+          this.connect(userId, token);
+        } else {
+          console.error('Cannot reconnect: missing user ID or token');
+        }
       }
-    }, this.reconnectInterval);
+    }, this.reconnectInterval * Math.min(this.reconnectAttempts, 3)); // Exponential backoff, but cap at 3x
   }
 }
 

@@ -3,11 +3,11 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { doctorService } from '@/services/api/doctor-service';
 import { toast } from '@/hooks/use-toast';
 import { Loader } from '@/components/ui/loader';
-import { Clock } from 'lucide-react';
+import { Clock, RefreshCw } from 'lucide-react';
 
 interface AvailabilityToggleProps {
   onStatusChange: (isAvailable: boolean) => void;
@@ -25,58 +25,59 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const initialFetchDone = useRef(false);
+  const lastUpdateTime = useRef(0);
 
   // Fetch current doctor status on component mount
-  useEffect(() => {
-    const fetchDoctorStatus = async () => {
-      // Skip if we already did the initial fetch
-      if (initialFetchDone.current) return;
+  const fetchDoctorStatus = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const response = await doctorService.getDoctorProfile();
       
-      try {
-        setIsLoading(true);
-        setError(null);
-        const response = await doctorService.getDoctorProfile();
+      if (response.success && response.data) {
+        setIsAvailable(response.data.isAvailable);
         
-        if (response.success && response.data) {
-          setIsAvailable(response.data.isAvailable);
-          
-          // Set shift times if available
-          if (response.data.shiftStart) {
-            setShiftStart(formatTimeForInput(response.data.shiftStart));
-          }
-          
-          if (response.data.shiftEnd) {
-            setShiftEnd(formatTimeForInput(response.data.shiftEnd));
-          }
-          
-          // Only notify parent if the value is different from what we already have
-          if (response.data.isAvailable !== isAvailable) {
-            onStatusChange(response.data.isAvailable);
-          }
-          
-          initialFetchDone.current = true;
-        } else {
-          setError(response.error || 'Failed to load doctor status');
-          toast({
-            title: 'Error',
-            description: response.error || 'Failed to load doctor status',
-            variant: 'destructive',
-          });
+        // Set shift times if available
+        if (response.data.shiftStart) {
+          setShiftStart(formatTimeForInput(response.data.shiftStart));
         }
-      } catch (error: any) {
-        console.error('Error fetching doctor status:', error);
-        setError('Could not load your current status');
+        
+        if (response.data.shiftEnd) {
+          setShiftEnd(formatTimeForInput(response.data.shiftEnd));
+        }
+        
+        // Only notify parent if the value is different from what we already have
+        if (response.data.isAvailable !== isAvailable) {
+          onStatusChange(response.data.isAvailable);
+        }
+        
+        initialFetchDone.current = true;
+      } else {
+        setError(response.error || 'Failed to load doctor status');
         toast({
           title: 'Error',
-          description: error.message || 'Could not load your current status',
+          description: response.error || 'Failed to load doctor status',
           variant: 'destructive',
         });
-      } finally {
-        setIsLoading(false);
       }
-    };
-    
-    fetchDoctorStatus();
+    } catch (error: any) {
+      console.error('Error fetching doctor status:', error);
+      setError('Could not load your current status');
+      toast({
+        title: 'Error',
+        description: error.message || 'Could not load your current status',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Skip if we already did the initial fetch
+    if (!initialFetchDone.current) {
+      fetchDoctorStatus();
+    }
   }, []);
 
   // Update local state when initialAvailability changes
@@ -84,7 +85,7 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
     if (initialAvailability !== isAvailable && initialFetchDone.current) {
       setIsAvailable(initialAvailability);
     }
-  }, [initialAvailability]);
+  }, [initialAvailability, isAvailable]);
 
   // Format time from API (string) to input time format (HH:MM)
   const formatTimeForInput = (timeString: string): string => {
@@ -109,6 +110,18 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
   };
 
   const toggleAvailability = async (checked: boolean) => {
+    // Prevent rapid toggling
+    const now = Date.now();
+    if (now - lastUpdateTime.current < 1000) {
+      toast({
+        title: "Please Wait",
+        description: "Please wait a moment before changing status again",
+        variant: "default",
+      });
+      return;
+    }
+    
+    lastUpdateTime.current = now;
     setIsUpdating(true);
     setError(null);
     
@@ -150,41 +163,55 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
   };
 
   const updateShiftTimes = async () => {
-    if (isAvailable) {
-      setIsUpdating(true);
-      setError(null);
+    // Prevent rapid updates
+    const now = Date.now();
+    if (now - lastUpdateTime.current < 1000) {
+      toast({
+        title: "Please Wait",
+        description: "Please wait a moment before updating again",
+        variant: "default",
+      });
+      return;
+    }
+    
+    lastUpdateTime.current = now;
+    setIsUpdating(true);
+    setError(null);
+    
+    try {
+      const response = await doctorService.updateStatus({
+        isAvailable: true,
+        shiftStart,
+        shiftEnd,
+      });
       
-      try {
-        const response = await doctorService.updateStatus({
-          isAvailable: true,
-          shiftStart,
-          shiftEnd,
+      if (response.success) {
+        toast({
+          title: "Shift Updated",
+          description: `Your shift time is now set from ${shiftStart} to ${shiftEnd}`,
         });
-        
-        if (response.success) {
-          toast({
-            title: "Shift Updated",
-            description: `Your shift time is now set from ${shiftStart} to ${shiftEnd}`,
-          });
-        } else {
-          setError(response.error || "Could not update your shift time");
-          toast({
-            title: "Shift Update Failed",
-            description: response.error || "Could not update your shift time.",
-            variant: "destructive",
-          });
-        }
-      } catch (error: any) {
-        setError("Could not update your shift time");
+      } else {
+        setError(response.error || "Could not update your shift time");
         toast({
           title: "Shift Update Failed",
-          description: error.message || "Could not update your shift time. Please try again.",
+          description: response.error || "Could not update your shift time.",
           variant: "destructive",
         });
-      } finally {
-        setIsUpdating(false);
       }
+    } catch (error: any) {
+      setError("Could not update your shift time");
+      toast({
+        title: "Shift Update Failed",
+        description: error.message || "Could not update your shift time. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdating(false);
     }
+  };
+
+  const handleRefresh = () => {
+    fetchDoctorStatus();
   };
 
   if (isLoading) {
@@ -209,10 +236,11 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
         <CardContent>
           <div className="text-red-600 mb-4">{error}</div>
           <Button 
-            onClick={() => window.location.reload()}
+            onClick={handleRefresh}
             className="w-full"
           >
-            Reload
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Retry
           </Button>
         </CardContent>
       </Card>
@@ -223,6 +251,7 @@ const AvailabilityToggle: React.FC<AvailabilityToggleProps> = ({
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-lg font-medium">Availability Status</CardTitle>
+        <CardDescription>Set your availability and working hours</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex items-center justify-between py-2">

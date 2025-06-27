@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { authService } from '@/services/api/auth-service';
 import { User } from '@/services/api/data-transformers';
+import { websocketService } from '@/services/notifications/websocketService';
 
 interface AuthContextType {
   user: User | null;
@@ -33,6 +34,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   
+  // Initialize WebSocket connection when user is authenticated
+  useEffect(() => {
+    if (user && user.id) {
+      const token = localStorage.getItem('token');
+      if (token) {
+        // Connect to WebSocket for real-time notifications
+        websocketService.connect(user.id, token);
+      }
+    }
+    
+    return () => {
+      // Disconnect WebSocket when component unmounts or user logs out
+      if (!user) {
+        websocketService.disconnect();
+      }
+    };
+  }, [user]);
+  
   // Check for existing authentication on mount
   useEffect(() => {
     const checkAuth = async () => {
@@ -45,6 +64,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const storedUser = authService.getCurrentUser();
           if (storedUser) {
             setUser(storedUser);
+            
+            // Store userId in localStorage for WebSocket reconnection
+            localStorage.setItem('userId', storedUser.id);
           }
           
           // Then fetch latest user profile from server
@@ -72,6 +94,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (result.success && result.data) {
         setUser(result.data.user || null);
+        
+        // Store userId for WebSocket reconnection if user exists
+        if (result.data.user?.id) {
+          localStorage.setItem('userId', result.data.user.id);
+        }
+        
         return true;
       } else {
         setError(result.error || 'Login failed');
@@ -95,6 +123,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (result.success && result.data) {
         setUser(result.data.user || null);
+        
+        // Store userId for WebSocket reconnection if user exists
+        if (result.data.user?.id) {
+          localStorage.setItem('userId', result.data.user.id);
+        }
+        
         return true;
       } else {
         setError(result.error || 'Login failed');
@@ -118,6 +152,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (result.success && result.data) {
         setUser(result.data.user || null);
+        
+        // Store userId for WebSocket reconnection if user exists
+        if (result.data.user?.id) {
+          localStorage.setItem('userId', result.data.user.id);
+        }
+        
         return true;
       } else {
         setError(result.error || 'Login failed');
@@ -137,6 +177,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const result = await authService.getProfile();
       if (result.success && result.data) {
         setUser(result.data);
+        
+        // Store userId for WebSocket reconnection
+        localStorage.setItem('userId', result.data.id);
       }
     } catch (err) {
       console.error('Failed to fetch user profile:', err);
@@ -145,8 +188,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   // Logout function
   const logout = async () => {
+    // Disconnect WebSocket before logging out
+    websocketService.disconnect();
+    
     await authService.logout();
     setUser(null);
+    
+    // Clear userId from localStorage
+    localStorage.removeItem('userId');
   };
   
   // Clear error function

@@ -11,6 +11,7 @@ from api.core.config import settings
 from api.routes import patient, staff, doctor, admin
 from api.routes.sync import router as sync_router
 from api.routes.notifications import router as notifications_router
+from api.routes.websocket import router as websocket_router
 
 # Configure logging
 logging.basicConfig(
@@ -149,6 +150,13 @@ app.include_router(
     notifications_router,
     prefix=f"{settings.API_V1_STR}/notifications",
     tags=["Notifications"]
+)
+
+# Include WebSocket router
+app.include_router(
+    websocket_router,
+    prefix=f"{settings.API_V1_STR}/ws",
+    tags=["WebSocket"]
 )
 
 # Custom OpenAPI schema
