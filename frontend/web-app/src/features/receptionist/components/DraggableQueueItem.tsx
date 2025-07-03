@@ -55,31 +55,50 @@ const DraggableQueueItem: React.FC<DraggableQueueItemProps> = ({
     position: 'relative' as const,
   };
 
+  // Handle both legacy priority and new conditionType from API
+  const getPriority = () => {
+    if (patient.priority) return patient.priority;
+    if (patient.conditionType) {
+      // Map conditionType to priority
+      switch (patient.conditionType.toLowerCase()) {
+        case 'emergency': return 'high';
+        case 'elderly': return 'high';
+        case 'child': return 'medium';
+        default: return 'low';
+      }
+    }
+    return 'medium';
+  };
+
   const getPriorityBadge = (priority: string) => {
     switch (priority.toLowerCase()) {
       case 'high':
+      case 'emergency':
+      case 'elderly':
         return <Badge variant="destructive" className="font-medium">High</Badge>;
       case 'medium':
+      case 'child':
         return <Badge variant="default" className="bg-amber-500 font-medium">Medium</Badge>;
       case 'low':
+      case 'normal':
         return <Badge variant="outline" className="text-blue-600 font-medium">Low</Badge>;
       default:
         return <Badge variant="outline">{priority}</Badge>;
     }
   };
 
-  const getWaitTime = (checkInTime: string) => {
+  const getWaitTime = (timestamp: string) => {
     try {
-      return formatDistanceToNow(new Date(checkInTime), { addSuffix: false });
+      return formatDistanceToNow(new Date(timestamp), { addSuffix: false });
     } catch (error) {
       return 'Unknown';
     }
   };
 
   // Calculate wait time severity (for visual indicators)
-  const getWaitTimeSeverity = (checkInTime: string) => {
+  const getWaitTimeSeverity = (timestamp: string) => {
     try {
-      const waitMinutes = (new Date().getTime() - new Date(checkInTime).getTime()) / (1000 * 60);
+      const waitMinutes = (new Date().getTime() - new Date(timestamp).getTime()) / (1000 * 60);
       
       if (waitMinutes > 60) return 'severe'; // Over 1 hour
       if (waitMinutes > 30) return 'warning'; // Over 30 minutes
@@ -90,25 +109,33 @@ const DraggableQueueItem: React.FC<DraggableQueueItemProps> = ({
   };
 
   const handleIncreasePriority = () => {
-    const currentPriority = patient.priority.toLowerCase();
-    if (currentPriority === 'low') {
+    const currentPriority = getPriority().toLowerCase();
+    if (currentPriority === 'low' || currentPriority === 'normal') {
       onChangePriority(patient.id, 'medium');
-    } else if (currentPriority === 'medium') {
+    } else if (currentPriority === 'medium' || currentPriority === 'child') {
       onChangePriority(patient.id, 'high');
     }
   };
 
   const handleDecreasePriority = () => {
-    const currentPriority = patient.priority.toLowerCase();
-    if (currentPriority === 'high') {
+    const currentPriority = getPriority().toLowerCase();
+    if (currentPriority === 'high' || currentPriority === 'emergency' || currentPriority === 'elderly') {
       onChangePriority(patient.id, 'medium');
-    } else if (currentPriority === 'medium') {
+    } else if (currentPriority === 'medium' || currentPriority === 'child') {
       onChangePriority(patient.id, 'low');
     }
   };
 
-  const waitTimeSeverity = getWaitTimeSeverity(patient.checkInTime);
-  const currentPriority = patient.priority.toLowerCase();
+  // Get the appropriate timestamp (checkInTime for legacy, createdAt for API)
+  const timestamp = patient.checkInTime || patient.createdAt;
+  const waitTimeSeverity = getWaitTimeSeverity(timestamp);
+  const currentPriority = getPriority().toLowerCase();
+  
+  // Get patient name (either name for legacy or patientName for API)
+  const patientName = patient.name || patient.patientName;
+  
+  // Get reason (either reason for legacy or conditionType for API)
+  const reason = patient.reason || `${patient.conditionType} condition`;
   
   return (
     <TableRow 
@@ -125,11 +152,11 @@ const DraggableQueueItem: React.FC<DraggableQueueItemProps> = ({
           >
             <GripVertical className="h-4 w-4 text-gray-400" />
           </div>
-          {getPriorityBadge(patient.priority)}
+          {getPriorityBadge(getPriority())}
         </div>
       </TableCell>
-      <TableCell className="font-medium">{patient.name}</TableCell>
-      <TableCell>{patient.reason}</TableCell>
+      <TableCell className="font-medium">{patientName}</TableCell>
+      <TableCell>{reason}</TableCell>
       <TableCell>
         <div className="flex items-center">
           {waitTimeSeverity === 'severe' && (
@@ -148,12 +175,12 @@ const DraggableQueueItem: React.FC<DraggableQueueItemProps> = ({
                 ? 'font-medium text-amber-600'
                 : ''
           }>
-            {getWaitTime(patient.checkInTime)}
+            {getWaitTime(timestamp)}
           </span>
         </div>
       </TableCell>
       <TableCell>
-        {format(new Date(patient.checkInTime), 'h:mm a')}
+        {format(new Date(timestamp), 'h:mm a')}
       </TableCell>
       <TableCell className="text-right">
         <div className="flex items-center justify-end space-x-2">
@@ -162,7 +189,7 @@ const DraggableQueueItem: React.FC<DraggableQueueItemProps> = ({
               variant="ghost"
               size="sm"
               onClick={handleIncreasePriority}
-              disabled={currentPriority === 'high'}
+              disabled={currentPriority === 'high' || currentPriority === 'emergency' || currentPriority === 'elderly'}
               className="h-6 px-2"
             >
               <ArrowUp className="h-3 w-3" />
@@ -171,7 +198,7 @@ const DraggableQueueItem: React.FC<DraggableQueueItemProps> = ({
               variant="ghost"
               size="sm"
               onClick={handleDecreasePriority}
-              disabled={currentPriority === 'low'}
+              disabled={currentPriority === 'low' || currentPriority === 'normal'}
               className="h-6 px-2"
             >
               <ArrowDown className="h-3 w-3" />

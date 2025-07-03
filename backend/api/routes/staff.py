@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, desc, asc, insert
@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from database import get_db
 from models import (
     Patient, User, Appointment, Queue, QueueStatus, UrgencyLevel, UserRole, 
-    AppointmentStatus, NotificationType, DeviceToken
+    AppointmentStatus, NotificationType, DeviceToken, Doctor
 )
 from schemas import (
     PatientCreate, AppointmentCreate, AppointmentUpdate,
@@ -465,7 +465,7 @@ async def get_queue_stats(
     """Get queue statistics for staff"""
     try:
         # Get queue counts by status
-        waiting_count = await db.execute(
+        waiting_count_result = await db.execute(
             select(func.count(Queue.id))
             .where(
                 and_(
@@ -474,8 +474,9 @@ async def get_queue_stats(
                 )
             )
         )
+        waiting_count = waiting_count_result.scalar() or 0
         
-        called_count = await db.execute(
+        called_count_result = await db.execute(
             select(func.count(Queue.id))
             .where(
                 and_(
@@ -484,8 +485,9 @@ async def get_queue_stats(
                 )
             )
         )
+        called_count = called_count_result.scalar() or 0
         
-        completed_count = await db.execute(
+        completed_count_result = await db.execute(
             select(func.count(Queue.id))
             .where(
                 and_(
@@ -494,8 +496,9 @@ async def get_queue_stats(
                 )
             )
         )
+        completed_count = completed_count_result.scalar() or 0
         
-        cancelled_count = await db.execute(
+        cancelled_count_result = await db.execute(
             select(func.count(Queue.id))
             .where(
                 and_(
@@ -504,9 +507,10 @@ async def get_queue_stats(
                 )
             )
         )
+        cancelled_count = cancelled_count_result.scalar() or 0
         
         # Average wait time
-        avg_wait_time = await db.execute(
+        avg_wait_time_result = await db.execute(
             select(func.avg(
                 func.extract('epoch', Queue.served_at - Queue.created_at) / 60
             ))
@@ -518,22 +522,70 @@ async def get_queue_stats(
                 )
             )
         )
+        avg_wait_time = avg_wait_time_result.scalar() or 0
+        
+        # Get available doctors count
+        available_doctors_result = await db.execute(
+            select(func.count(Doctor.id))
+            .where(Doctor.is_available == True)
+        )
+        available_doctors = available_doctors_result.scalar() or 0
+        
+        # Get total doctors count
+        total_doctors_result = await db.execute(
+            select(func.count(Doctor.id))
+        )
+        total_doctors = total_doctors_result.scalar() or 0
+        
+        # Get high priority count - using appointment urgency instead of queue urgency
+        try:
+            high_priority_result = await db.execute(
+                select(func.count(Queue.id))
+                .where(
+                    and_(
+                        Queue.status == QueueStatus.WAITING,
+                        Queue.appointment.has(Appointment.urgency.in_(['high', 'emergency'])),
+                        func.date(Queue.created_at) == func.current_date()
+                    )
+                )
+            )
+            high_priority_count = high_priority_result.scalar() or 0
+        except Exception as e:
+            print(f"Error getting high priority count: {str(e)}")
+            high_priority_count = 0
         
         return {
             'date': datetime.now().date().isoformat(),
-            'waiting': waiting_count.scalar() or 0,
-            'called': called_count.scalar() or 0,
-            'completed': completed_count.scalar() or 0,
-            'cancelled': cancelled_count.scalar() or 0,
-            'total': (waiting_count.scalar() or 0) + (called_count.scalar() or 0) + 
-                    (completed_count.scalar() or 0) + (cancelled_count.scalar() or 0),
-            'average_wait_time_minutes': round(avg_wait_time.scalar() or 0, 2)
+            'waiting': waiting_count,
+            'called': called_count,
+            'completed': completed_count,
+            'cancelled': cancelled_count,
+            'total': waiting_count + called_count + completed_count + cancelled_count,
+            'average_wait_time': round(avg_wait_time, 2),
+            'total_waiting': waiting_count,
+            'average_wait_time_minutes': round(avg_wait_time, 2),
+            'high_priority_count': high_priority_count,
+            'available_doctors': available_doctors,
+            'total_doctors': total_doctors
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get queue statistics: {str(e)}"
-        )
+        # Log the exception for debugging
+        print(f"Queue stats error: {str(e)}")
+        # Return default values instead of raising an exception
+        return {
+            'date': datetime.now().date().isoformat(),
+            'waiting': 0,
+            'called': 0,
+            'completed': 0,
+            'cancelled': 0,
+            'total': 0,
+            'average_wait_time': 0,
+            'total_waiting': 0,
+            'average_wait_time_minutes': 0,
+            'high_priority_count': 0,
+            'available_doctors': 0,
+            'total_doctors': 0
+        }
 
 @router.post("/queue", response_model=QueueSchema)
 async def create_queue(

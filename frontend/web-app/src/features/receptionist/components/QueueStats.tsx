@@ -5,23 +5,34 @@ import { Users, Clock, AlertTriangle, UserCheck } from 'lucide-react';
 interface QueueStatsProps {
   patients: any[];
   doctors: any[];
+  queueStats?: {
+    total_waiting: number;
+    average_wait_time: number;
+    high_priority_count: number;
+    available_doctors: number;
+    total_doctors: number;
+  } | null;
 }
 
-const QueueStats: React.FC<QueueStatsProps> = ({ patients, doctors }) => {
-  // Calculate summary statistics
-  const totalPatients = patients.length;
+const QueueStats: React.FC<QueueStatsProps> = ({ patients, doctors, queueStats }) => {
+  // Calculate summary statistics from patients array if queueStats is not available
+  const totalPatients = queueStats?.total_waiting ?? patients.length;
   
-  const highPriorityCount = patients.filter(
-    patient => patient.priority?.toLowerCase() === 'high'
+  const highPriorityCount = queueStats?.high_priority_count ?? patients.filter(
+    patient => patient.priority?.toLowerCase() === 'high' || patient.conditionType?.toLowerCase() === 'high'
   ).length;
   
   // Calculate average wait time in minutes
   const calculateAverageWaitTime = () => {
+    if (queueStats?.average_wait_time !== undefined) {
+      return queueStats.average_wait_time;
+    }
+    
     if (patients.length === 0) return 0;
     
     const now = new Date();
     const totalWaitMinutes = patients.reduce((total, patient) => {
-      const checkInTime = new Date(patient.checkInTime);
+      const checkInTime = new Date(patient.checkInTime || patient.createdAt);
       const waitTimeMinutes = (now.getTime() - checkInTime.getTime()) / (1000 * 60);
       return total + waitTimeMinutes;
     }, 0);
@@ -43,7 +54,8 @@ const QueueStats: React.FC<QueueStatsProps> = ({ patients, doctors }) => {
   };
 
   // Count available doctors
-  const availableDoctors = doctors.filter(doctor => doctor.isAvailable).length;
+  const availableDoctors = queueStats?.available_doctors ?? doctors.filter(doctor => doctor.isAvailable).length;
+  const totalDoctors = queueStats?.total_doctors ?? doctors.length;
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -90,7 +102,7 @@ const QueueStats: React.FC<QueueStatsProps> = ({ patients, doctors }) => {
           </div>
           <div className="ml-4">
             <p className="text-sm font-medium text-gray-500">Available Doctors</p>
-            <h3 className="text-xl font-bold">{availableDoctors} / {doctors.length}</h3>
+            <h3 className="text-xl font-bold">{availableDoctors} / {totalDoctors}</h3>
           </div>
         </CardContent>
       </Card>

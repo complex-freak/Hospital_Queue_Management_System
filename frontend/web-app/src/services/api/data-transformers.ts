@@ -24,6 +24,8 @@ export interface User {
   specialization?: string;
   department?: string;
   licenseNumber?: string;
+  isAvailable?: boolean;
+  patientCount?: number;
 }
 
 export interface Appointment {
@@ -121,7 +123,9 @@ export const transformToFrontendUser = (backendUser: any): User => {
       role: 'doctor',
       specialization: backendUser.specialization,
       department: backendUser.department,
-      licenseNumber: backendUser.license_number
+      licenseNumber: backendUser.license_number,
+      isAvailable: backendUser.is_available || false,
+      patientCount: backendUser.patient_count || 0
     };
   } else {
     // Transform staff/admin/receptionist user data

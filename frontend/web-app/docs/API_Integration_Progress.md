@@ -49,6 +49,13 @@ This document tracks the progress of integrating the frontend web application wi
 - ✅ GET `/doctor/appointments/{appointment_id}/feedback` - Get consultation feedback
 - ✅ PUT `/doctor/feedback/{feedback_id}` - Update consultation feedback
 
+### Receptionist Features
+- ✅ Dashboard with queue statistics
+- ✅ Patient registration form
+- ✅ Queue monitoring with drag-and-drop reordering
+- ✅ Priority management
+- ✅ Doctor assignment
+
 ## In Progress
 
 ### Admin API
@@ -147,4 +154,26 @@ The backend implementation for notifications is now complete. The frontend imple
 - Implement notification read status syncing with backend
 - Add custom notification sounds/alerts
 
-*Last Updated: July 2024* 
+*Last Updated: July 2024*
+
+## Implementation Notes
+
+### Recent Updates (Date: Current Date)
+- Removed all mock data from receptionist components
+- Integrated receptionist dashboard with actual backend API
+- Connected patient registration form to backend endpoints
+- Implemented queue management with real-time updates
+- Added support for offline operations with sync capability
+- Updated data transformers to handle API data formats
+
+### Known Issues
+- Doctor availability status not yet implemented in the backend
+- Notification system integration pending backend implementation
+- Some UI components may need adjustments for edge cases in API responses
+
+### Next Steps
+1. Complete doctor management feature integration
+2. Implement notification system once backend endpoints are available
+3. Add comprehensive error handling for API failures
+4. Improve offline sync capabilities
+5. Add unit and integration tests for API interactions 

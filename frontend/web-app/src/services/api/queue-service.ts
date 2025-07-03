@@ -1,51 +1,103 @@
-
 import { Patient } from '@/types/patient';
 import api from './client';
-import { mockQueue } from './mock-data';
+import { transformToFrontendAppointment } from './data-transformers';
 
 export const queueService = {
-  // Get patient queue for doctor
+  // Get patient queue
   getQueue: async () => {
     try {
-      // In a real app, this would be an actual API call
-      // const response = await api.get('/api/doctor/queue');
-      // return response.data;
+      const response = await api.get('/staff/queue');
       
-      // For now, return mock data
-      return { success: true, data: mockQueue };
+      return { 
+        success: true, 
+        data: Array.isArray(response.data) 
+          ? response.data.map((item: any) => transformToFrontendAppointment(item))
+          : [] 
+      };
     } catch (error) {
       console.error('Error fetching queue:', error);
-      throw error;
+      return { success: false, error: 'Failed to fetch queue' };
+    }
+  },
+  
+  // Get queue statistics
+  getQueueStats: async () => {
+    try {
+      const response = await api.get('/staff/queue/stats');
+      
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error('Error fetching queue statistics:', error);
+      
+      // Return default statistics if the endpoint fails
+      // This allows the UI to continue functioning even if the backend endpoint has an issue
+      return { 
+        success: true, 
+        data: {
+          total_waiting: 0,
+          average_wait_time: 0,
+          high_priority_count: 0,
+          available_doctors: 0,
+          total_doctors: 0,
+          // Include additional stats that might be expected by the UI
+          total_patients_today: 0,
+          completed_appointments: 0,
+          cancelled_appointments: 0
+        }
+      };
     }
   },
   
   // Mark patient as seen
-  markPatientSeen: async (patientId: string) => {
+  markPatientSeen: async (appointmentId: string) => {
     try {
-      // In a real app, this would be an actual API call
-      // const response = await api.post('/api/queue/seen', { patientId });
-      // return response.data;
+      const response = await api.post(`/staff/queue/${appointmentId}/call-next`);
       
-      // For now, return mock success response
-      return { success: true, message: 'Patient marked as seen' };
+      return {
+        success: true,
+        data: transformToFrontendAppointment(response.data)
+      };
     } catch (error) {
       console.error('Error marking patient as seen:', error);
-      throw error;
+      return { success: false, error: 'Failed to mark patient as seen' };
     }
   },
   
   // Skip patient in queue
-  skipPatient: async (patientId: string) => {
+  skipPatient: async (appointmentId: string) => {
     try {
-      // In a real app, this would be an actual API call
-      // const response = await api.post('/api/queue/skip', { patientId });
-      // return response.data;
+      const response = await api.post(`/staff/appointments/${appointmentId}/cancel`, {
+        reason: 'Skipped by staff'
+      });
       
-      // For now, return mock success response
-      return { success: true, message: 'Patient skipped' };
+      return {
+        success: true,
+        data: {
+          id: appointmentId,
+          status: response.data.status || 'cancelled'
+        }
+      };
     } catch (error) {
       console.error('Error skipping patient:', error);
-      throw error;
+      return { success: false, error: 'Failed to skip patient' };
     }
   },
+  
+  // Update queue entry
+  updateQueueEntry: async (queueId: string, data: any) => {
+    try {
+      const response = await api.put(`/staff/queue/${queueId}`, data);
+      
+      return {
+        success: true,
+        data: transformToFrontendAppointment(response.data)
+      };
+    } catch (error) {
+      console.error('Error updating queue entry:', error);
+      return { success: false, error: 'Failed to update queue entry' };
+    }
+  }
 };

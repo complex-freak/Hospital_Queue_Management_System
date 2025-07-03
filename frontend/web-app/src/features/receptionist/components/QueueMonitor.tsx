@@ -23,7 +23,6 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { Search, ArrowUpDown } from 'lucide-react';
-import { apiService } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
 import { notificationService } from '@/services/notifications/notificationService';
 import { connectivityService } from '@/services/connectivity/connectivityService';
@@ -44,6 +43,8 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
+import { queueService } from '@/services/api/queue-service';
+import { receptionistService } from '@/services/api/receptionist-service';
 
 interface QueueMonitorProps {
   patients: any[];
@@ -115,35 +116,39 @@ const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, 
       .filter(patient => {
         // Filter by search term
         const matchesSearch = 
-          patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          patient.reason.toLowerCase().includes(searchTerm.toLowerCase());
+          patient.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          patient.reason?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          patient.patientName?.toLowerCase().includes(searchTerm.toLowerCase());
         
         // Filter by priority
         const matchesPriority = 
           priorityFilter === 'all' || 
-          patient.priority.toLowerCase() === priorityFilter.toLowerCase();
+          patient.priority?.toLowerCase() === priorityFilter.toLowerCase() ||
+          patient.conditionType?.toLowerCase() === priorityFilter.toLowerCase();
         
         return matchesSearch && matchesPriority;
       })
       .sort((a, b) => {
         // Sort by selected field
         if (sortField === 'checkInTime') {
-          const timeA = new Date(a.checkInTime).getTime();
-          const timeB = new Date(b.checkInTime).getTime();
+          const timeA = new Date(a.checkInTime || a.createdAt).getTime();
+          const timeB = new Date(b.checkInTime || b.createdAt).getTime();
           return sortDirection === 'asc' ? timeA - timeB : timeB - timeA;
         }
         
         if (sortField === 'priority') {
           const priorityValues = { 'high': 3, 'medium': 2, 'low': 1 };
-          const priorityA = priorityValues[a.priority.toLowerCase()] || 0;
-          const priorityB = priorityValues[b.priority.toLowerCase()] || 0;
+          const priorityA = priorityValues[a.priority?.toLowerCase() || a.conditionType?.toLowerCase()] || 0;
+          const priorityB = priorityValues[b.priority?.toLowerCase() || b.conditionType?.toLowerCase()] || 0;
           return sortDirection === 'asc' ? priorityA - priorityB : priorityB - priorityA;
         }
         
         if (sortField === 'name') {
+          const nameA = a.name || a.patientName || '';
+          const nameB = b.name || b.patientName || '';
           return sortDirection === 'asc' 
-            ? a.name.localeCompare(b.name) 
-            : b.name.localeCompare(a.name);
+            ? nameA.localeCompare(nameB) 
+            : nameB.localeCompare(nameA);
         }
         
         return 0;
@@ -171,18 +176,22 @@ const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, 
       setPatients(prevPatients => prevPatients.filter(p => p.id !== patientId));
       
       if (isOnline) {
-        // If online, call the API
-        await apiService.skipPatient(patientId);
+        // Call the API to remove patient
+        const result = await queueService.skipPatient(patientId);
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to remove patient');
+        }
         
         // Notify
         if (patientToRemove) {
-          notificationService.notifyPatientRemoved(patientToRemove.name);
+          notificationService.notifyPatientRemoved(patientToRemove.name || patientToRemove.patientName);
         }
       } else {
         // If offline, store in IndexedDB
         if (patientToRemove) {
           await indexedDBService.addPendingAction('remove', { patientId });
-          notificationService.notifyOfflineAction(`Removing ${patientToRemove.name}`);
+          notificationService.notifyOfflineAction(`Removing ${patientToRemove.name || patientToRemove.patientName}`);
         }
       }
       
@@ -206,22 +215,26 @@ const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, 
       
       // Update local state immediately for better UX
       setPatients(prevPatients => prevPatients.map(p => 
-        p.id === patientId ? { ...p, priority: newPriority } : p
+        p.id === patientId ? { ...p, priority: newPriority, conditionType: newPriority } : p
       ));
       
       if (isOnline) {
-        // In a real app, this would call your API
-        // await apiService.updatePatientPriority(patientId, newPriority);
+        // Call the API to update priority
+        const result = await receptionistService.updatePatientPriority(patientId, newPriority);
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to update priority');
+        }
         
         // Notify
         if (patientToUpdate) {
-          notificationService.notifyPriorityChanged(patientToUpdate.name, newPriority);
+          notificationService.notifyPriorityChanged(patientToUpdate.name || patientToUpdate.patientName, newPriority);
         }
       } else {
         // If offline, store in IndexedDB
         if (patientToUpdate) {
           await indexedDBService.addPendingAction('prioritize', { patientId, priority: newPriority });
-          notificationService.notifyOfflineAction(`Changing ${patientToUpdate.name}'s priority`);
+          notificationService.notifyOfflineAction(`Changing ${patientToUpdate.name || patientToUpdate.patientName}'s priority`);
         }
       }
       
@@ -280,52 +293,45 @@ const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     
-    if (over && active.id !== over.id) {
-      // Find the actual indices in the filtered array
-      const filteredActiveIndex = filteredPatients.findIndex(item => item.id === active.id);
-      const filteredOverIndex = filteredPatients.findIndex(item => item.id === over.id);
+    if (active.id !== over?.id) {
+      const oldIndex = patients.findIndex(p => p.id === active.id);
+      const newIndex = patients.findIndex(p => p.id === over?.id);
       
-      if (filteredActiveIndex === -1 || filteredOverIndex === -1) return;
+      // Update local state immediately for better UX
+      const newPatients = arrayMove(patients, oldIndex, newIndex);
+      setPatients(newPatients);
       
-      // Get the actual patient objects
-      const activePatient = filteredPatients[filteredActiveIndex];
-      const overPatient = filteredPatients[filteredOverIndex];
-      
-      // Find these patients in the original array
-      const originalActiveIndex = patients.findIndex(p => p.id === activePatient.id);
-      const originalOverIndex = patients.findIndex(p => p.id === overPatient.id);
-      
-      if (originalActiveIndex === -1 || originalOverIndex === -1) return;
-      
-      // Create a new array with the updated order
-      const reorderedItems = [...patients];
-      
-      // Remove the active item
-      reorderedItems.splice(originalActiveIndex, 1);
-      
-      // Insert it at the new position
-      reorderedItems.splice(originalOverIndex, 0, activePatient);
-      
-      // Update the state with the new order
-      setPatients(reorderedItems);
-      
+      // If online, update the backend
       if (isOnline) {
-        // In a real app, you would call an API to update the order
-        // apiService.updatePatientOrder(active.id, originalOverIndex);
+        try {
+          // Get the patient that was moved
+          const movedPatient = patients[oldIndex];
+          
+          // Call the API to update the queue order
+          queueService.updateQueueEntry(movedPatient.id, {
+            queue_position: newIndex
+          }).catch(error => {
+            console.error('Error updating queue order:', error);
+            // Revert to original order on error
+            setPatients(patients);
+            toast({
+              title: 'Error',
+              description: 'Failed to update queue order. Please try again.',
+              variant: 'destructive',
+            });
+          });
+        } catch (error) {
+          console.error('Error updating queue order:', error);
+        }
       } else {
         // If offline, store in IndexedDB
         indexedDBService.addPendingAction('reorder', { 
-          patientId: active.id, 
-          newIndex: originalOverIndex,
-          oldIndex: originalActiveIndex
-        });
-        notificationService.notifyOfflineAction('Reordering queue');
-      }
-      
-      toast({
-        title: 'Queue Updated',
-        description: 'Patient order has been updated.',
+          patientId: active.id.toString(), 
+          newPosition: newIndex 
+        }).then(() => {
+          notificationService.notifyOfflineAction('Queue order updated (offline)');
       });
+      }
     }
   };
 

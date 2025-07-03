@@ -45,6 +45,21 @@ export const receptionistService = {
     }
   },
   
+  // Get all doctors
+  getAllDoctors: async () => {
+    try {
+      const response = await api.get('/staff/doctors');
+      
+      return {
+        success: true,
+        data: Array.isArray(response.data) ? response.data.map((doctor: any) => transformToFrontendUser(doctor)) : [],
+      };
+    } catch (error) {
+      console.error('Error fetching doctors:', error);
+      return { success: false, error: 'Failed to fetch doctors' };
+    }
+  },
+  
   // Register a new patient
   registerPatient: async (patientData: PatientRegistrationData) => {
     try {

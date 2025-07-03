@@ -1,5 +1,4 @@
 import api from './client';
-import { mockQueue } from './mock-data';
 import { queueService } from './queue-service';
 import { doctorService } from './doctor-service';
 import { notificationService } from './notification-service';
@@ -32,7 +31,6 @@ export const apiService = {
 // Re-export everything for proper imports
 export { 
   api as default,
-  mockQueue,
   queueService,
   doctorService,
   notificationService,

@@ -4,8 +4,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useAuth } from '@/hooks/use-auth-context';
-import { apiService } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
+import { receptionistService } from '@/services/api/receptionist-service';
 import AppHeader from '@/features/shared/components/AppHeader';
 import { Button } from '@/components/ui/button';
 import {
@@ -173,19 +173,37 @@ const PatientRegistration = () => {
     setIsSavingDraft(true);
     
     try {
+      const personalInfo = personalInfoForm.getValues();
+      const medicalInfo = medicalInfoForm.getValues();
+      const consent = consentForm.getValues();
+      
       const draftData = {
         draftId: draftId || `draft-${Date.now()}`,
-        personalInfo: personalInfoForm.getValues(),
-        medicalInfo: medicalInfoForm.getValues(),
-        consent: consentForm.getValues(),
+        firstName: personalInfo.firstName,
+        lastName: personalInfo.lastName,
+        dateOfBirth: personalInfo.dateOfBirth,
+        gender: personalInfo.gender,
+        email: personalInfo.email,
+        phone: personalInfo.phone,
+        reason: medicalInfo.reason,
+        priority: medicalInfo.priority,
+        allergies: medicalInfo.allergies,
+        medications: medicalInfo.medications,
+        medicalHistory: medicalInfo.medicalHistory,
+        consentToTreatment: consent.consentToTreatment,
+        consentToShareData: consent.consentToShareData,
+        emergencyContactName: consent.emergencyContactName,
+        emergencyContactPhone: consent.emergencyContactPhone,
+        emergencyContactRelation: consent.emergencyContactRelation,
         lastUpdated: new Date().toISOString(),
       };
       
-      // In a real app, you might save to the server
-      // await apiService.savePatientDraft(draftData);
+      // Save draft using the receptionist service
+      const result = await receptionistService.savePatientDraft(draftData);
       
-      // For now, save to localStorage
-      localStorage.setItem('patientRegistrationDraft', JSON.stringify(draftData));
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to save draft');
+      }
       
       if (!draftId) {
         setDraftId(draftData.draftId);
@@ -248,36 +266,58 @@ const PatientRegistration = () => {
     setIsSubmitting(true);
     
     try {
+      const personalInfo = personalInfoForm.getValues();
+      const medicalInfo = medicalInfoForm.getValues();
+      const consent = consentForm.getValues();
+      
       // Combine all form data
       const patientData = {
-        ...personalInfoForm.getValues(),
-        ...medicalInfoForm.getValues(),
-        ...consentForm.getValues(),
-        registeredBy: user?.id,
+        firstName: personalInfo.firstName,
+        lastName: personalInfo.lastName,
+        dateOfBirth: personalInfo.dateOfBirth,
+        gender: personalInfo.gender,
+        email: personalInfo.email || undefined,
+        phone: personalInfo.phone,
+        reason: medicalInfo.reason,
+        priority: medicalInfo.priority,
+        allergies: medicalInfo.allergies || undefined,
+        medications: medicalInfo.medications || undefined,
+        medicalHistory: medicalInfo.medicalHistory || undefined,
+        consentToTreatment: consent.consentToTreatment,
+        consentToShareData: consent.consentToShareData || false,
+        emergencyContactName: consent.emergencyContactName,
+        emergencyContactPhone: consent.emergencyContactPhone,
+        emergencyContactRelation: consent.emergencyContactRelation,
+        registeredBy: user?.id || undefined,
         registrationDate: new Date().toISOString(),
       };
       
-      // In a real app, this would call your API
-      // const response = await apiService.registerPatient(patientData);
+      // Register patient using the receptionist service
+      const result = await receptionistService.registerPatient(patientData);
       
-      // For now, simulate a successful response
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to register patient');
+      }
       
-      // Clear the draft after successful submission
+      // Clear draft after successful registration
+      if (draftId) {
+        localStorage.removeItem('patientRegistrationDraft-' + draftId);
       localStorage.removeItem('patientRegistrationDraft');
+        setDraftId(null);
+      }
       
       toast({
-        title: 'Registration Complete',
-        description: 'Patient has been successfully registered and added to the queue.',
+        title: 'Registration Successful',
+        description: `${patientData.firstName} ${patientData.lastName} has been registered successfully.`,
       });
       
-      // Navigate back to dashboard
+      // Navigate to dashboard
       navigate('/receptionist/dashboard');
     } catch (error) {
       console.error('Error registering patient:', error);
       toast({
-        title: 'Error',
-        description: 'Failed to register patient. Please try again.',
+        title: 'Registration Failed',
+        description: error instanceof Error ? error.message : 'Failed to register patient. Please try again.',
         variant: 'destructive',
       });
     } finally {
