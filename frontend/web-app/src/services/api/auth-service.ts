@@ -350,6 +350,58 @@ export const authService = {
         error: error.response?.data?.detail || 'Failed to fetch roles.'
       };
     }
+  },
+  
+  // Refresh the authentication token
+  refreshToken: async () => {
+    try {
+      const currentToken = localStorage.getItem('token');
+      if (!currentToken) {
+        throw new Error('No token available to refresh');
+      }
+      
+      // Determine the appropriate API endpoint based on user role
+      const user = authService.getCurrentUser();
+      let endpoint = '/admin/refresh-token';
+      
+      if (user?.role === 'doctor') {
+        endpoint = '/doctor/refresh-token';
+      } else if (user?.role === 'receptionist' || user?.role === 'staff') {
+        endpoint = '/staff/refresh-token';
+      }
+      
+      const response = await api.post(endpoint, {}, {
+        headers: {
+          'Authorization': `Bearer ${currentToken}`
+        }
+      });
+      
+      if (response.data.access_token) {
+        // Store the new token in localStorage
+        localStorage.setItem('token', response.data.access_token);
+        return {
+          success: true,
+          data: {
+            accessToken: response.data.access_token,
+            tokenType: response.data.token_type || 'bearer'
+          }
+        };
+      }
+      
+      return { success: false, error: 'Invalid response from server' };
+    } catch (error: any) {
+      console.error('Token refresh error:', error);
+      
+      // Clear token if it's invalid or expired
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+      }
+      
+      return { 
+        success: false, 
+        error: error.response?.data?.detail || 'Failed to refresh token.'
+      };
+    }
   }
 };
 

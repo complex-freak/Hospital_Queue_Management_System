@@ -1,7 +1,6 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { authService } from '@/services/api/auth-service';
 import { User } from '@/services/api/data-transformers';
-import { websocketService } from '@/services/notifications/websocketService';
 
 interface AuthContextType {
   user: User | null;
@@ -34,24 +33,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Initialize WebSocket connection when user is authenticated
-  useEffect(() => {
-    if (user && user.id) {
-      const token = localStorage.getItem('token');
-      if (token) {
-        // Connect to WebSocket for real-time notifications
-        websocketService.connect(user.id, token);
-      }
-    }
-    
-    return () => {
-      // Disconnect WebSocket when component unmounts or user logs out
-      if (!user) {
-        websocketService.disconnect();
-      }
-    };
-  }, [user]);
-  
   // Check for existing authentication on mount
   useEffect(() => {
     const checkAuth = async () => {
@@ -65,7 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (storedUser) {
             setUser(storedUser);
             
-            // Store userId in localStorage for WebSocket reconnection
+            // Store userId in localStorage for reconnection
             localStorage.setItem('userId', storedUser.id);
           }
           
@@ -95,7 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (result.success && result.data) {
         setUser(result.data.user || null);
         
-        // Store userId for WebSocket reconnection if user exists
+        // Store userId for reconnection if user exists
         if (result.data.user?.id) {
           localStorage.setItem('userId', result.data.user.id);
         }
@@ -124,7 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (result.success && result.data) {
         setUser(result.data.user || null);
         
-        // Store userId for WebSocket reconnection if user exists
+        // Store userId for reconnection if user exists
         if (result.data.user?.id) {
           localStorage.setItem('userId', result.data.user.id);
         }
@@ -153,7 +134,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (result.success && result.data) {
         setUser(result.data.user || null);
         
-        // Store userId for WebSocket reconnection if user exists
+        // Store userId for reconnection if user exists
         if (result.data.user?.id) {
           localStorage.setItem('userId', result.data.user.id);
         }
@@ -178,7 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (result.success && result.data) {
         setUser(result.data);
         
-        // Store userId for WebSocket reconnection
+        // Store userId for reconnection
         localStorage.setItem('userId', result.data.id);
       }
     } catch (err) {
@@ -188,9 +169,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   // Logout function
   const logout = async () => {
-    // Disconnect WebSocket before logging out
-    websocketService.disconnect();
-    
     await authService.logout();
     setUser(null);
     

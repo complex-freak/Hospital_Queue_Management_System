@@ -18,7 +18,8 @@ from schemas import (
     Doctor as DoctorSchema,
     PatientNote, PatientNoteCreate, PatientNoteUpdate,
     ConsultationFeedback, ConsultationFeedbackCreate, ConsultationFeedbackUpdate,
-    DoctorStatusUpdate
+    DoctorStatusUpdate,
+    DoctorProfileUpdate
 )
 from services import NotificationService, AuthService, DoctorService
 from services.queue_service import QueueService
@@ -141,16 +142,13 @@ async def get_current_doctor(
             
             # Create doctor profile with a new UUID
             new_doctor_id = uuid.uuid4()
-            stmt = insert(Doctor).values(
+            await db.execute(insert(Doctor).values(
                 id=new_doctor_id,
                 user_id=current_user.id,
                 specialization="General Medicine",  # Default values
                 department="General Practice",
                 is_available=True
-            )
-            
-            await db.execute(stmt)
-            await db.commit()
+            ))
             
             # Fetch the newly created doctor
             result = await db.execute(
@@ -1001,4 +999,174 @@ async def update_consultation_feedback(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update consultation feedback"
+        )
+
+@router.post("/queue/{queue_id}/skip")
+async def skip_patient(
+    queue_id: UUID,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Skip patient in queue"""
+    try:
+        # Get queue entry
+        result = await db.execute(
+            select(Queue).where(Queue.id == queue_id)
+        )
+        queue = result.scalar_one_or_none()
+        
+        if not queue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Queue entry not found"
+            )
+        
+        # Get appointment
+        result = await db.execute(
+            select(Appointment).where(Appointment.id == queue.appointment_id)
+        )
+        appointment = result.scalar_one_or_none()
+        
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found"
+            )
+        
+        # Get doctor
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Check if the doctor is assigned to this appointment
+        if appointment.doctor_id != doctor.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not authorized to skip this patient"
+            )
+        
+        # Update queue status to SKIPPED
+        queue.status = QueueStatus.SKIPPED
+        await db.commit()
+        
+        # Trigger notification for the patient
+        # This is a background task to avoid blocking the response
+        background_tasks.add_task(
+            NotificationService.send_notification,
+            db,
+            appointment.patient_id,
+            "Appointment Rescheduled",
+            f"Your appointment with Dr. {current_user.last_name} has been rescheduled. Please check with reception."
+        )
+        
+        # Log the action
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="SKIP_PATIENT",
+            resource="QUEUE",
+            resource_id=queue.id,
+            details=f"Patient {appointment.patient_id} skipped in queue",
+            db=db
+        )
+        
+        return {"message": "Patient skipped successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to skip patient"
+        )
+
+@router.put("/profile", response_model=DoctorSchema)
+async def update_doctor_profile(
+    profile_data: DoctorProfileUpdate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update doctor profile"""
+    try:
+        # Get doctor profile
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            # Create doctor profile if it doesn't exist
+            new_doctor_id = uuid.uuid4()
+            stmt = insert(Doctor).values(
+                id=new_doctor_id,
+                user_id=current_user.id,
+                specialization=profile_data.specialization or "General Medicine",
+                department=profile_data.department or "General Practice",
+                is_available=True
+            )
+            
+            await db.execute(stmt)
+            await db.commit()
+            
+            # Fetch the newly created doctor
+            result = await db.execute(
+                select(Doctor).where(Doctor.id == new_doctor_id)
+            )
+            doctor = result.scalar_one()
+        else:
+            # Update existing profile with new data
+            if profile_data.specialization is not None:
+                doctor.specialization = profile_data.specialization
+            if profile_data.department is not None:
+                doctor.department = profile_data.department
+            if profile_data.license_number is not None:
+                doctor.license_number = profile_data.license_number
+            if profile_data.consultation_fee is not None:
+                doctor.consultation_fee = profile_data.consultation_fee
+            
+            # Update the new fields in Doctor model if they exist
+            # We'll need to add these fields to the Doctor model in another step
+            if hasattr(doctor, 'bio') and profile_data.bio is not None:
+                doctor.bio = profile_data.bio
+            if hasattr(doctor, 'education') and profile_data.education is not None:
+                doctor.education = profile_data.education
+            if hasattr(doctor, 'experience') and profile_data.experience is not None:
+                doctor.experience = profile_data.experience
+        
+        await db.commit()
+        await db.refresh(doctor)
+        
+        # Log the action
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="UPDATE",
+            resource="DOCTOR",
+            resource_id=doctor.id,
+            details=f"Doctor profile updated",
+            db=db
+        )
+        
+        return doctor
+        
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update doctor profile: {str(e)}"
         )

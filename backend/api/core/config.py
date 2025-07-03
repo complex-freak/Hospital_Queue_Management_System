@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://user:password@localhost/queue_db"
     
     # CORS
-    BACKEND_CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8080"]
+    BACKEND_CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8080", "https://localhost:3000", "https://localhost:8080", "*"]
     
     # Twilio
     TWILIO_ACCOUNT_SID: Optional[str] = None

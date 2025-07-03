@@ -80,6 +80,13 @@ class NotificationService {
     return notification;
   }
 
+  // Save notifications to storage - useful for direct management from components
+  public saveNotifications(notifications: Notification[]) {
+    this.notifications = [...notifications];
+    this.saveToStorage();
+    this.notifyListeners();
+  }
+
   // Add API notification - used when receiving notifications from the server
   public addApiNotification(notification: any): Notification | null {
     // If we already have this notification (check by sourceId), don't add it again

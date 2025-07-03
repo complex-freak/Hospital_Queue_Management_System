@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/use-auth-context';
 import { doctorService } from '@/services/api/doctor-service';
 import { toast } from '@/hooks/use-toast';
@@ -19,27 +19,68 @@ const Dashboard = () => {
   const [isAvailable, setIsAvailable] = useState(true);
   const [doctorProfile, setDoctorProfile] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState(0);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const initialLoadDone = useRef(false);
+  const isComponentMounted = useRef(true);
+  
+  // Polling configuration
+  const initialPollingInterval = 30000; // 30 seconds
+  const [pollingInterval, setPollingInterval] = useState(initialPollingInterval);
+
+  // Set component mounted state for cleanup
+  useEffect(() => {
+    isComponentMounted.current = true;
+    
+    return () => {
+      isComponentMounted.current = false;
+    };
+  }, []);
 
   // Fetch doctor profile on mount
   useEffect(() => {
     const fetchDoctorProfile = async () => {
       try {
+        setProfileError(null);
+        // Only proceed if component is still mounted
+        if (!isComponentMounted.current) return;
+        
         const response = await doctorService.getDoctorProfile();
+        
+        // Check again if component is still mounted before updating state
+        if (!isComponentMounted.current) return;
+        
         if (response.success && response.data) {
           setDoctorProfile(response.data);
           setIsAvailable(response.data.isAvailable);
-        } else {
-          setError(response.error || 'Failed to load doctor profile');
-          toast({
-            title: 'Error',
-            description: response.error || 'Failed to load doctor profile',
-            variant: 'destructive',
-          });
+          initialLoadDone.current = true;
+        } else if (response.success && response.wasCancelled) {
+          // Handle cancelled request - retry once after a short delay
+          setTimeout(() => {
+            if (isComponentMounted.current) {
+              fetchDoctorProfile();
+            }
+          }, 500);
+          return;
+        } else if (response.error) {
+          setProfileError(response.error || 'Failed to load doctor profile');
+          
+          // Don't show toast for cancelled requests
+          if (response.error !== 'Request was cancelled') {
+            toast({
+              title: 'Error',
+              description: response.error || 'Failed to load doctor profile',
+              variant: 'destructive',
+            });
+          }
         }
       } catch (error: any) {
+        // Only update state if component is still mounted
+        if (!isComponentMounted.current) return;
+        
         console.error('Error fetching doctor profile:', error);
-        setError('Failed to load doctor profile');
+        setProfileError('Failed to load doctor profile');
         toast({
           title: 'Error',
           description: error.message || 'Failed to load doctor profile',
@@ -49,6 +90,11 @@ const Dashboard = () => {
     };
 
     fetchDoctorProfile();
+    
+    // Cleanup function will be called when the component unmounts
+    return () => {
+      // Component cleanup is handled by isComponentMounted.current = false
+    };
   }, []);
 
   const fetchQueue = useCallback(async () => {
@@ -58,64 +104,160 @@ const Dashboard = () => {
       return;
     }
     
+    // Only proceed if component is still mounted
+    if (!isComponentMounted.current) return;
+    
     setLastFetchTime(now);
     
     try {
-      setIsLoading(true);
+      // Only show loading indicator for initial load, not for background refreshes
+      if (!initialLoadDone.current) {
+        setIsLoading(true);
+      }
       setError(null);
       
       // If doctor is unavailable, don't fetch queue
       if (!isAvailable) {
         setPatients([]);
         setIsLoading(false);
+        initialLoadDone.current = true;
         return;
       }
       
       const response = await doctorService.getDoctorQueue();
       
+      // Check if component is still mounted before updating state
+      if (!isComponentMounted.current) return;
+      
       if (response.success) {
-        setPatients(response.data || []);
+        const newPatients = response.data || [];
+        setPatients(newPatients);
+        
+        // Adaptive polling based on queue activity
+        if (newPatients.length === 0) {
+          // If queue is empty, check less frequently (60 seconds)
+          setPollingInterval(60000);
+        } else if (newPatients.length > 5) {
+          // If queue is busy, check more frequently (15 seconds)
+          setPollingInterval(15000);
+        } else {
+          // Default polling interval (30 seconds)
+          setPollingInterval(initialPollingInterval);
+        }
+        
+        initialLoadDone.current = true;
+      } else if (response.wasCancelled) {
+        // Ignore cancelled requests
+        return;
       } else {
+        // Don't update state for canceled requests
+        if (response.error === 'Request was cancelled') return;
+        
         setError(response.error || 'Failed to load patient queue');
+        // Don't show toast for background refreshes, only when manually refreshing
+        if (isRefreshing) {
+          toast({
+            title: 'Error',
+            description: response.error || 'Failed to load patient queue',
+            variant: 'destructive',
+          });
+        }
+      }
+    } catch (error: any) {
+      // Check if component is still mounted before updating state
+      if (!isComponentMounted.current) return;
+      
+      console.error('Error fetching queue:', error);
+      setError('Failed to load patient queue');
+      // Don't show toast for background refreshes, only when manually refreshing
+      if (isRefreshing) {
         toast({
           title: 'Error',
-          description: response.error || 'Failed to load patient queue',
+          description: error.message || 'Failed to load patient queue',
           variant: 'destructive',
         });
       }
-    } catch (error: any) {
-      console.error('Error fetching queue:', error);
-      setError('Failed to load patient queue');
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to load patient queue',
-        variant: 'destructive',
-      });
     } finally {
+      // Check if component is still mounted before updating state
+      if (!isComponentMounted.current) return;
+      
       setIsLoading(false);
+      setIsRefreshing(false);
     }
-  }, [isAvailable, lastFetchTime]);
+  }, [isAvailable, lastFetchTime, isRefreshing]);
 
+  // Setup queue polling
   useEffect(() => {
+    // Initial fetch
     fetchQueue();
     
-    // Poll the queue every 30 seconds
-    const interval = setInterval(() => {
-      fetchQueue();
-    }, 30000);
+    // Setup dynamic polling interval
+    const setupPolling = () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+      
+      pollingIntervalRef.current = setInterval(() => {
+        // Only fetch if component is still mounted
+        if (isComponentMounted.current) {
+          fetchQueue();
+        }
+      }, pollingInterval);
+    };
     
-    return () => clearInterval(interval);
+    setupPolling();
+    
+    // Update polling whenever the interval changes
+    const intervalHandler = () => {
+      setupPolling();
+    };
+    
+    // Watch for polling interval changes
+    const intervalWatcher = setInterval(intervalHandler, 1000);
+    
+    return () => {
+      // Clean up all intervals
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+      clearInterval(intervalWatcher);
+    };
+  }, [fetchQueue, pollingInterval]);
+
+  // Set up a visible activity tracker to slow down polling when tab is inactive
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!isComponentMounted.current) return;
+      
+      if (document.visibilityState === 'hidden') {
+        // Page is hidden, reduce polling frequency
+        setPollingInterval(120000); // 2 minutes
+      } else {
+        // Page is visible again, restore polling frequency
+        setPollingInterval(initialPollingInterval);
+        // Fetch immediately when becoming visible
+        fetchQueue();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [fetchQueue]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await fetchQueue();
-    setIsRefreshing(false);
   };
 
   const handlePatientSeen = async (patientId: string) => {
     try {
       const response = await doctorService.markPatientSeen(patientId);
+      
+      // Check if component is still mounted before updating state
+      if (!isComponentMounted.current) return;
       
       if (response.success) {
         // Remove the patient from the queue
@@ -132,6 +274,9 @@ const Dashboard = () => {
         });
       }
     } catch (error: any) {
+      // Check if component is still mounted before showing toast
+      if (!isComponentMounted.current) return;
+      
       toast({
         title: 'Error',
         description: error.message || 'Failed to mark patient as seen',
@@ -143,6 +288,9 @@ const Dashboard = () => {
   const handlePatientSkipped = async (patientId: string) => {
     try {
       const response = await doctorService.skipPatient(patientId);
+      
+      // Check if component is still mounted before updating state
+      if (!isComponentMounted.current) return;
       
       if (response.success) {
         // Remove the patient from the queue
@@ -159,6 +307,9 @@ const Dashboard = () => {
         });
       }
     } catch (error: any) {
+      // Check if component is still mounted before showing toast
+      if (!isComponentMounted.current) return;
+      
       toast({
         title: 'Error',
         description: error.message || 'Failed to skip patient',
@@ -208,7 +359,15 @@ const Dashboard = () => {
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-4">
           <div className="lg:col-span-3">
-            {!isAvailable ? (
+            {profileError ? (
+              <div className="bg-white p-8 rounded-lg shadow text-center">
+                <h3 className="text-xl font-medium text-red-700 mb-2">Error Loading Doctor Profile</h3>
+                <p className="text-gray-500 mb-4">{profileError}</p>
+                <Button onClick={() => window.location.reload()} variant="outline">
+                  Reload Page
+                </Button>
+              </div>
+            ) : !isAvailable ? (
               <div className="bg-white p-8 rounded-lg shadow text-center">
                 <h3 className="text-xl font-medium text-gray-700 mb-2">You're Currently Unavailable</h3>
                 <p className="text-gray-500 mb-4">
@@ -223,6 +382,19 @@ const Dashboard = () => {
                 <Button onClick={handleRefresh} variant="outline">
                   Try Again
                 </Button>
+              </div>
+            ) : isLoading && !initialLoadDone.current ? (
+              <div className="bg-white p-8 rounded-lg shadow text-center">
+                <Loader className="mx-auto h-8 w-8 mb-4" />
+                <h3 className="text-xl font-medium text-gray-700 mb-2">Loading Queue</h3>
+                <p className="text-gray-500">Please wait while we retrieve your patient queue...</p>
+              </div>
+            ) : patients.length === 0 ? (
+              <div className="bg-white p-8 rounded-lg shadow text-center">
+                <h3 className="text-xl font-medium text-gray-700 mb-2">No patients in queue</h3>
+                <p className="text-gray-500 mb-4">
+                  Your queue is currently empty. Enjoy the quiet moment!
+                </p>
               </div>
             ) : (
               <QueueTable

@@ -2,6 +2,7 @@ import api from './client';
 import { ProfileData } from './types';
 import { Patient, ConsultationFeedback, NoteVersion } from '@/types/patient';
 import { authService } from './auth-service';
+import axios, { AxiosError } from 'axios';
 import { 
   transformToFrontendUser, 
   transformToFrontendPatientNote, 
@@ -29,15 +30,40 @@ const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) =
 let lastStatusUpdateTime = 0;
 const STATUS_UPDATE_THROTTLE = 1000; // 1 second
 
+// Track in-flight requests
+const activeRequestsMap = new Map<string, AbortController>();
+
+// Helper to create a new abort controller and cancel previous requests
+const getRequestController = (requestKey: string) => {
+  // We'll only cancel duplicate requests for specific operations
+  // For doctor profile, we don't want to cancel since it's critical for the app
+  if (requestKey !== 'doctorProfile' && activeRequestsMap.has(requestKey)) {
+    activeRequestsMap.get(requestKey)?.abort();
+    activeRequestsMap.delete(requestKey);
+  }
+  
+  // Create new abort controller
+  const controller = new AbortController();
+  activeRequestsMap.set(requestKey, controller);
+  return controller;
+};
+
 export const doctorService = {
   // Get doctor profile
-  getDoctorProfile: async () => {
+  getDoctorProfile: async (retryCount = 0) => {
+    // For doctor profile, we'll use a unique key each time to avoid cancellations
+    const requestKey = `doctorProfile-${Date.now()}`;
+    const controller = new AbortController();
+    
     try {
       const user = authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
 
-      const response = await api.get('/doctor/me');
+      const response = await api.get('/doctor/me', {
+        signal: controller.signal
+      });
       
+      // Request completed successfully
       return { 
         success: true, 
         data: {
@@ -55,6 +81,53 @@ export const doctorService = {
       };
     } catch (error: any) {
       console.error('Error fetching doctor profile:', error);
+      
+      // Handle request cancellation
+      if (axios.isCancel(error)) {
+        console.log('Doctor profile request was cancelled:', error.message);
+        // Don't retry cancelled requests, but don't show error to user
+        return {
+          success: true, // Return success but with empty data
+          data: null,
+          wasCancelled: true
+        };
+      }
+      
+      // Implement retry logic with exponential backoff
+      if (retryCount < 3) {
+        const retryDelay = Math.pow(2, retryCount) * 1000; // Exponential backoff: 1s, 2s, 4s
+        console.log(`Retrying doctor profile fetch in ${retryDelay}ms...`);
+        
+        return new Promise(resolve => {
+          setTimeout(async () => {
+            const retryResult = await doctorService.getDoctorProfile(retryCount + 1);
+            resolve(retryResult);
+          }, retryDelay);
+        });
+      }
+      
+      // Handle specific error cases
+      if (error.response?.status === 404) {
+        return {
+          success: false,
+          error: 'Doctor profile not found. Please contact admin to set up your profile.'
+        };
+      }
+      
+      if (error.response?.status === 401) {
+        // If unauthorized, try to refresh the token
+        try {
+          await authService.refreshToken();
+          // Retry once more after token refresh
+          return doctorService.getDoctorProfile(retryCount + 1);
+        } catch (refreshError) {
+          return {
+            success: false,
+            error: 'Your session has expired. Please log in again.'
+          };
+        }
+      }
+      
       return {
         success: false,
         error: error.response?.data?.detail || 'Failed to fetch doctor profile'
@@ -64,6 +137,9 @@ export const doctorService = {
 
   // Update doctor availability status
   updateStatus: async (status: { isAvailable: boolean; shiftStart?: string; shiftEnd?: string }) => {
+    const requestKey = 'updateStatus';
+    const controller = getRequestController(requestKey);
+    
     try {
       const user = authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
@@ -84,7 +160,12 @@ export const doctorService = {
         is_available: status.isAvailable,
         shift_start: status.shiftStart,
         shift_end: status.shiftEnd
+      }, {
+        signal: controller.signal
       });
+      
+      // Request completed successfully, remove from active requests
+      activeRequestsMap.delete(requestKey);
       
       return { 
         success: true, 
@@ -100,7 +181,20 @@ export const doctorService = {
         }
       };
     } catch (error: any) {
+      // Remove from active requests on error
+      activeRequestsMap.delete(requestKey);
+      
       console.error('Error updating status:', error);
+      
+      // Handle request cancellation
+      if (axios.isCancel(error)) {
+        console.log('Request was cancelled:', error.message);
+        return {
+          success: false,
+          error: 'Request was cancelled'
+        };
+      }
+      
       return {
         success: false,
         error: error.response?.data?.detail || 'Failed to update status'
@@ -307,12 +401,18 @@ export const doctorService = {
   },
   
   // Get doctor queue
-  getDoctorQueue: async () => {
+  getDoctorQueue: async (retryCount = 0) => {
+    // Generate a unique key for each queue request to avoid cancellations
+    const requestKey = `doctorQueue-${Date.now()}`;
+    const controller = new AbortController();
+    
     try {
       const user = authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
 
-      const response = await api.get('/doctor/queue');
+      const response = await api.get('/doctor/queue', {
+        signal: controller.signal
+      });
       
       // Handle empty array response
       if (response.data && Array.isArray(response.data)) {
@@ -331,12 +431,52 @@ export const doctorService = {
     } catch (error: any) {
       console.error('Error fetching doctor queue:', error);
       
+      // Handle request cancellation
+      if (axios.isCancel(error)) {
+        console.log('Doctor queue request was cancelled:', error.message);
+        return {
+          success: true, // Return success with empty data
+          data: [],
+          wasCancelled: true
+        };
+      }
+      
+      // Implement retry logic with exponential backoff
+      if (retryCount < 2) { // Maximum 2 retries (less than profile since this is polled)
+        const retryDelay = Math.pow(2, retryCount) * 500; // Faster backoff: 500ms, 1000ms
+        console.log(`Retrying doctor queue fetch in ${retryDelay}ms...`);
+        
+        return new Promise(resolve => {
+          setTimeout(async () => {
+            const retryResult = await doctorService.getDoctorQueue(retryCount + 1);
+            resolve(retryResult);
+          }, retryDelay);
+        });
+      }
+      
       // Handle 404 (no queue) as empty array rather than error
       if (error.response?.status === 404) {
         return {
           success: true,
           data: []
         };
+      }
+      
+      // Handle authentication issues
+      if (error.response?.status === 401) {
+        // If unauthorized, try to refresh the token
+        try {
+          await authService.refreshToken();
+          // Retry once more after token refresh
+          return doctorService.getDoctorQueue(retryCount + 1);
+        } catch (refreshError) {
+          // If refresh fails, return authentication error
+          return {
+            success: false,
+            error: 'Your session has expired. Please log in again.',
+            data: []
+          };
+        }
       }
       
       return {

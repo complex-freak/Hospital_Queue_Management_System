@@ -1,1 +1,0 @@
-does @config.py import its varaibles from @.env, if not implement the vraibales should be in the environmenmt file for easy and best management of the project

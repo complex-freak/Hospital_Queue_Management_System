@@ -587,3 +587,13 @@ class DoctorStatusUpdate(BaseModel):
     is_available: bool
     shift_start: Optional[str] = None
     shift_end: Optional[str] = None
+
+
+class DoctorProfileUpdate(BaseModel):
+    specialization: Optional[str] = None
+    license_number: Optional[str] = None
+    department: Optional[str] = None
+    consultation_fee: Optional[int] = None
+    bio: Optional[str] = None
+    education: Optional[str] = None
+    experience: Optional[str] = None

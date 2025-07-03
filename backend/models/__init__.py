@@ -38,6 +38,7 @@ class QueueStatus(str, Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     NO_SHOW = "no_show"
+    SKIPPED = "skipped"
 
 
 class NotificationType(str, Enum):
@@ -124,6 +125,9 @@ class Doctor(Base):
     is_available = Column(Boolean, default=True)
     shift_start = Column(String(10), nullable=True)  # HH:MM format
     shift_end = Column(String(10), nullable=True)  # HH:MM format
+    bio = Column(Text, nullable=True)
+    education = Column(Text, nullable=True)
+    experience = Column(Text, nullable=True)
     
     # Relationships
     user = relationship("User", back_populates="doctor_profile")
