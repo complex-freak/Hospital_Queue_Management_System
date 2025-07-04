@@ -55,6 +55,7 @@ const medicalInfoSchema = z.object({
   priority: z.enum(['low', 'medium', 'high'], {
     required_error: 'Please select a priority',
   }),
+  appointmentDate: z.string().min(1, 'Appointment date is required'),
   allergies: z.string().optional(),
   medications: z.string().optional(),
   medicalHistory: z.string().optional(),
@@ -97,6 +98,7 @@ const PatientRegistration = () => {
     defaultValues: {
       reason: '',
       priority: 'medium',
+      appointmentDate: new Date().toISOString().split('T')[0],
       allergies: '',
       medications: '',
       medicalHistory: '',
@@ -119,24 +121,24 @@ const PatientRegistration = () => {
     const loadDraft = async () => {
       try {
         const draftData = localStorage.getItem('patientRegistrationDraft');
-        
+
         if (draftData) {
           const draft = JSON.parse(draftData);
           setDraftId(draft.draftId || null);
-          
+
           // Load data into forms
           if (draft.personalInfo) {
             personalInfoForm.reset(draft.personalInfo);
           }
-          
+
           if (draft.medicalInfo) {
             medicalInfoForm.reset(draft.medicalInfo);
           }
-          
+
           if (draft.consent) {
             consentForm.reset(draft.consent);
           }
-          
+
           toast({
             title: 'Draft Loaded',
             description: 'Your previous registration draft has been loaded.',
@@ -155,7 +157,7 @@ const PatientRegistration = () => {
     const autoSaveInterval = setInterval(() => {
       saveDraft();
     }, 30000);
-    
+
     return () => clearInterval(autoSaveInterval);
   }, [personalInfoForm.formState.isDirty, medicalInfoForm.formState.isDirty, consentForm.formState.isDirty]);
 
@@ -169,14 +171,14 @@ const PatientRegistration = () => {
     ) {
       return;
     }
-    
+
     setIsSavingDraft(true);
-    
+
     try {
       const personalInfo = personalInfoForm.getValues();
       const medicalInfo = medicalInfoForm.getValues();
       const consent = consentForm.getValues();
-      
+
       const draftData = {
         draftId: draftId || `draft-${Date.now()}`,
         firstName: personalInfo.firstName,
@@ -188,6 +190,7 @@ const PatientRegistration = () => {
         reason: medicalInfo.reason,
         priority: medicalInfo.priority,
         allergies: medicalInfo.allergies,
+        appointmentDate: medicalInfo.appointmentDate,
         medications: medicalInfo.medications,
         medicalHistory: medicalInfo.medicalHistory,
         consentToTreatment: consent.consentToTreatment,
@@ -197,20 +200,20 @@ const PatientRegistration = () => {
         emergencyContactRelation: consent.emergencyContactRelation,
         lastUpdated: new Date().toISOString(),
       };
-      
+
       // Save draft using the receptionist service
       const result = await receptionistService.savePatientDraft(draftData);
-      
+
       if (!result.success) {
         throw new Error(result.error || 'Failed to save draft');
       }
-      
+
       if (!draftId) {
         setDraftId(draftData.draftId);
       }
-      
+
       setDraftSaved(true);
-      
+
       toast({
         title: 'Draft Saved',
         description: 'Your registration progress has been saved.',
@@ -229,7 +232,7 @@ const PatientRegistration = () => {
 
   const handleNext = async () => {
     let isValid = false;
-    
+
     switch (currentStep) {
       case 0:
         isValid = await personalInfoForm.trigger();
@@ -240,7 +243,7 @@ const PatientRegistration = () => {
       default:
         isValid = false;
     }
-    
+
     if (isValid) {
       saveDraft();
       setCurrentStep((prev) => prev + 1);
@@ -254,7 +257,7 @@ const PatientRegistration = () => {
   const handleSubmit = async () => {
     // Trigger validation for all fields
     const isValid = await consentForm.trigger();
-    
+
     if (!isValid) {
       // Focus on the consent checkbox if it's not checked
       if (!consentForm.getValues().consentToTreatment) {
@@ -262,14 +265,14 @@ const PatientRegistration = () => {
       }
       return;
     }
-    
+
     setIsSubmitting(true);
-    
+
     try {
       const personalInfo = personalInfoForm.getValues();
       const medicalInfo = medicalInfoForm.getValues();
       const consent = consentForm.getValues();
-      
+
       // Combine all form data
       const patientData = {
         firstName: personalInfo.firstName,
@@ -280,6 +283,7 @@ const PatientRegistration = () => {
         phone: personalInfo.phone,
         reason: medicalInfo.reason,
         priority: medicalInfo.priority,
+        appointmentDate: medicalInfo.appointmentDate,
         allergies: medicalInfo.allergies || undefined,
         medications: medicalInfo.medications || undefined,
         medicalHistory: medicalInfo.medicalHistory || undefined,
@@ -291,26 +295,26 @@ const PatientRegistration = () => {
         registeredBy: user?.id || undefined,
         registrationDate: new Date().toISOString(),
       };
-      
+
       // Register patient using the receptionist service
       const result = await receptionistService.registerPatient(patientData);
-      
+
       if (!result.success) {
         throw new Error(result.error || 'Failed to register patient');
       }
-      
+
       // Clear draft after successful registration
       if (draftId) {
         localStorage.removeItem('patientRegistrationDraft-' + draftId);
-      localStorage.removeItem('patientRegistrationDraft');
+        localStorage.removeItem('patientRegistrationDraft');
         setDraftId(null);
       }
-      
+
       toast({
         title: 'Registration Successful',
         description: `${patientData.firstName} ${patientData.lastName} has been registered successfully.`,
       });
-      
+
       // Navigate to dashboard
       navigate('/receptionist/dashboard');
     } catch (error) {
@@ -346,7 +350,7 @@ const PatientRegistration = () => {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={personalInfoForm.control}
                   name="lastName"
@@ -360,7 +364,7 @@ const PatientRegistration = () => {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={personalInfoForm.control}
                   name="dateOfBirth"
@@ -374,7 +378,7 @@ const PatientRegistration = () => {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={personalInfoForm.control}
                   name="gender"
@@ -400,7 +404,7 @@ const PatientRegistration = () => {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={personalInfoForm.control}
                   name="phone"
@@ -414,7 +418,7 @@ const PatientRegistration = () => {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={personalInfoForm.control}
                   name="email"
@@ -432,7 +436,7 @@ const PatientRegistration = () => {
             </form>
           </Form>
         );
-      
+
       case 1:
         return (
           <Form {...medicalInfoForm}>
@@ -444,7 +448,7 @@ const PatientRegistration = () => {
                   <FormItem>
                     <FormLabel>Reason for Visit</FormLabel>
                     <FormControl>
-                      <Textarea 
+                      <Textarea
                         placeholder="Please describe the reason for your visit today"
                         className="min-h-[100px]"
                         {...field}
@@ -454,7 +458,22 @@ const PatientRegistration = () => {
                   </FormItem>
                 )}
               />
-              
+
+              <FormField
+                control={medicalInfoForm.control}
+                name="appointmentDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Appointment Date</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+
               <FormField
                 control={medicalInfoForm.control}
                 name="priority"
@@ -483,7 +502,7 @@ const PatientRegistration = () => {
                   </FormItem>
                 )}
               />
-              
+
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <FormField
                   control={medicalInfoForm.control}
@@ -492,7 +511,7 @@ const PatientRegistration = () => {
                     <FormItem>
                       <FormLabel>Allergies (Optional)</FormLabel>
                       <FormControl>
-                        <Textarea 
+                        <Textarea
                           placeholder="List any known allergies"
                           className="min-h-[80px]"
                           {...field}
@@ -502,7 +521,7 @@ const PatientRegistration = () => {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={medicalInfoForm.control}
                   name="medications"
@@ -510,7 +529,7 @@ const PatientRegistration = () => {
                     <FormItem>
                       <FormLabel>Current Medications (Optional)</FormLabel>
                       <FormControl>
-                        <Textarea 
+                        <Textarea
                           placeholder="List any current medications"
                           className="min-h-[80px]"
                           {...field}
@@ -521,7 +540,7 @@ const PatientRegistration = () => {
                   )}
                 />
               </div>
-              
+
               <FormField
                 control={medicalInfoForm.control}
                 name="medicalHistory"
@@ -529,7 +548,7 @@ const PatientRegistration = () => {
                   <FormItem>
                     <FormLabel>Medical History (Optional)</FormLabel>
                     <FormControl>
-                      <Textarea 
+                      <Textarea
                         placeholder="Any relevant medical history"
                         className="min-h-[100px]"
                         {...field}
@@ -542,7 +561,7 @@ const PatientRegistration = () => {
             </form>
           </Form>
         );
-      
+
       case 2:
         return (
           <Form {...consentForm}>
@@ -564,7 +583,7 @@ const PatientRegistration = () => {
                   </div>
                 </div>
               </div>
-              
+
               <FormField
                 control={consentForm.control}
                 name="consentToTreatment"
@@ -586,7 +605,7 @@ const PatientRegistration = () => {
                       />
                     </FormControl>
                     <div className="space-y-1 leading-none">
-                      <FormLabel 
+                      <FormLabel
                         htmlFor="consentToTreatment"
                         className="cursor-pointer"
                       >
@@ -600,7 +619,7 @@ const PatientRegistration = () => {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={consentForm.control}
                 name="consentToShareData"
@@ -622,7 +641,7 @@ const PatientRegistration = () => {
                       />
                     </FormControl>
                     <div className="space-y-1 leading-none">
-                      <FormLabel 
+                      <FormLabel
                         htmlFor="consentToShareData"
                         className="cursor-pointer"
                       >
@@ -635,12 +654,12 @@ const PatientRegistration = () => {
                   </FormItem>
                 )}
               />
-              
+
               <div className="rounded-md bg-gray-50 p-4">
                 <h3 className="text-sm font-medium text-gray-800 mb-2">
                   Emergency Contact Information
                 </h3>
-                
+
                 <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                   <FormField
                     control={consentForm.control}
@@ -655,7 +674,7 @@ const PatientRegistration = () => {
                       </FormItem>
                     )}
                   />
-                  
+
                   <FormField
                     control={consentForm.control}
                     name="emergencyContactPhone"
@@ -669,7 +688,7 @@ const PatientRegistration = () => {
                       </FormItem>
                     )}
                   />
-                  
+
                   <FormField
                     control={consentForm.control}
                     name="emergencyContactRelation"
@@ -688,7 +707,7 @@ const PatientRegistration = () => {
             </form>
           </Form>
         );
-      
+
       default:
         return null;
     }
@@ -697,7 +716,7 @@ const PatientRegistration = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <AppHeader />
-      
+
       <div className="py-8 mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
         <Card className="shadow-lg">
           <CardHeader>
@@ -708,7 +727,7 @@ const PatientRegistration = () => {
               {currentStep === 2 && 'Step 3: Consent & Emergency Contact'}
             </CardDescription>
           </CardHeader>
-          
+
           <CardContent>
             {/* Progress indicator */}
             <div className="mb-8">
@@ -733,10 +752,10 @@ const PatientRegistration = () => {
                 </div>
               </div>
             </div>
-            
+
             {renderStep()}
           </CardContent>
-          
+
           <CardFooter className="flex justify-between">
             <div>
               {currentStep > 0 && (
@@ -750,7 +769,7 @@ const PatientRegistration = () => {
                 </Button>
               )}
             </div>
-            
+
             <div className="flex space-x-2">
               <Button
                 variant="outline"
@@ -764,15 +783,15 @@ const PatientRegistration = () => {
                 )}
                 Save Draft
               </Button>
-              
+
               {currentStep < 2 ? (
                 <Button onClick={handleNext} disabled={isSubmitting}>
                   Next
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               ) : (
-                <Button 
-                  onClick={handleSubmit} 
+                <Button
+                  onClick={handleSubmit}
                   disabled={isSubmitting}
                   className="bg-green-600 hover:bg-green-700"
                 >

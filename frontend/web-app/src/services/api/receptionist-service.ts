@@ -11,6 +11,7 @@ export interface PatientRegistrationData {
   phone: string;
   reason: string;
   priority: string;
+  appointmentDate: string;
   allergies?: string;
   medications?: string;
   medicalHistory?: string;
@@ -80,6 +81,7 @@ export const receptionistService = {
         date_of_birth: patientData.dateOfBirth,
         gender: patientData.gender,
         email: patientData.email,
+        appointment_date: patientData.appointmentDate,
         phone_number: phoneNumber,
         emergency_contact: emergencyPhone,
         emergency_contact_name: patientData.emergencyContactName,
@@ -101,7 +103,8 @@ export const receptionistService = {
         patient_id: registerResponse.data.id,
         reason: patientData.reason,
         urgency: mapPriorityToUrgency(patientData.priority),
-        status: 'waiting'
+        status: 'waiting',
+        appointment_date: patientData.appointmentDate,
       };
       
       // Debug log the appointment data
