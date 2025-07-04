@@ -19,15 +19,21 @@ from schemas import (
     PatientNote, PatientNoteCreate, PatientNoteUpdate,
     ConsultationFeedback, ConsultationFeedbackCreate, ConsultationFeedbackUpdate,
     DoctorStatusUpdate,
-    DoctorProfileUpdate
+    DoctorProfileUpdate,
+    Notification
 )
 from services import NotificationService, AuthService, DoctorService
 from services.queue_service import QueueService
 from api.dependencies import require_doctor, log_audit_event
 from api.core.security import create_access_token
 from api.core.config import settings
+from pydantic import BaseModel
 
 router = APIRouter()
+
+class PatientNotificationRequest(BaseModel):
+    message: str
+    subject: Optional[str] = "Message from your doctor"
 
 @router.post("/login", response_model=Token)
 async def login_doctor(
@@ -335,6 +341,15 @@ async def mark_patient_served(
             appointment.notes = notes
         
         await db.commit()
+        
+        # Update queue positions and send notifications
+        notification_service = NotificationService()
+        background_tasks.add_task(
+            QueueService.update_queue_positions,
+            db=db,
+            doctor_id=doctor.id,
+            notification_service=notification_service
+        )
         
         # Send completion notification
         # TODO: Implement this method in NotificationService
@@ -1058,14 +1073,25 @@ async def skip_patient(
         queue.status = QueueStatus.SKIPPED
         await db.commit()
         
+        # Create notification service instance
+        notification_service = NotificationService()
+        
         # Trigger notification for the patient
-        # This is a background task to avoid blocking the response
         background_tasks.add_task(
-            NotificationService.send_notification,
-            db,
-            appointment.patient_id,
-            "Appointment Rescheduled",
-            f"Your appointment with Dr. {current_user.last_name} has been rescheduled. Please check with reception."
+            notification_service.send_queue_position_notification,
+            db=db,
+            patient_id=appointment.patient_id,
+            queue_number=queue.queue_number,
+            position=-1,  # Special value for skipped
+            doctor_name=f"{current_user.first_name} {current_user.last_name}"
+        )
+        
+        # Update queue positions and send notifications to other patients
+        background_tasks.add_task(
+            QueueService.update_queue_positions,
+            db=db,
+            doctor_id=doctor.id,
+            notification_service=notification_service
         )
         
         # Log the action
@@ -1169,4 +1195,90 @@ async def update_doctor_profile(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update doctor profile: {str(e)}"
+        )
+
+@router.post("/patients/{patient_id}/notify", response_model=Notification)
+async def notify_patient(
+    patient_id: UUID,
+    notification_data: PatientNotificationRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Send a manual notification from doctor to patient"""
+    try:
+        # Get doctor info
+        result = await db.execute(
+            select(Doctor).where(Doctor.user_id == current_user.id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor profile not found"
+            )
+        
+        # Verify patient exists and is assigned to this doctor
+        result = await db.execute(
+            select(Patient)
+            .join(Appointment, Patient.id == Appointment.patient_id)
+            .where(
+                and_(
+                    Patient.id == patient_id,
+                    Appointment.doctor_id == doctor.id
+                )
+            )
+        )
+        
+        patient = result.scalar_one_or_none()
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Patient not found or not assigned to this doctor"
+            )
+        
+        # Create and send notification
+        notification_service = NotificationService()
+        notification = await notification_service.send_doctor_manual_notification(
+            db=db,
+            patient_id=patient_id,
+            doctor_id=doctor.id,
+            message=notification_data.message,
+            subject=notification_data.subject or "Message from your doctor"
+        )
+        
+        if not notification:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send notification"
+            )
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="create",
+            resource="notification",
+            resource_id=notification.id,
+            details=f"Doctor sent notification to patient {patient_id}",
+            db=db
+        )
+        
+        return notification
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to send notification: {str(e)}"
         )

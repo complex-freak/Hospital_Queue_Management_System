@@ -9,14 +9,16 @@ import logging
 import uuid
 
 from database import get_db
-from models import Patient, Appointment, Notification, DeviceToken, PatientSettings
+from models import Patient, Appointment, Notification, DeviceToken, PatientSettings, Doctor, User, UrgencyLevel, AppointmentStatus
 from schemas import (
     PatientCreate, PatientUpdate, PatientLogin, Patient as PatientSchema,
     Token, QueueStatusResponse, Appointment as AppointmentSchema,
     Notification as NotificationSchema, DeviceTokenSchema,
     SettingsSchema, SettingsUpdateSchema, PatientAppointmentCreate
 )
-from services import AuthService, QueueService
+from services import AuthService
+from services.queue_service import QueueService
+from services.notification_service import NotificationService, notification_service
 from api.core.security import create_access_token, get_password_hash, verify_password
 from api.core.config import settings
 from api.dependencies import get_current_patient, log_audit_event
@@ -734,26 +736,41 @@ async def create_appointment(
     current_patient: Patient = Depends(get_current_patient),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new appointment request"""
+    """Create a new appointment for the current patient"""
     try:
-        # Create new appointment with default status of 'WAITING'
-        appointment_date = appointment_data.appointment_date or datetime.now()
+        # Validate urgency level
+        try:
+            urgency = UrgencyLevel(appointment_data.urgency.lower())
+        except ValueError:
+            urgency = UrgencyLevel.NORMAL
         
-        # Debug log the incoming data
-        print(f"Creating appointment with data: {appointment_data}")
-        
-        # Create the appointment - use enum value WAITING
-        appointment_values = {
+        # Create appointment object
+        appointment_obj = {
             "patient_id": current_patient.id,
-            "appointment_date": appointment_date,
-            "reason": appointment_data.reason,
-            "urgency": appointment_data.urgency,
-            "status": "WAITING",
-            "created_at": datetime.now()
+            "appointment_date": appointment_data.appointment_date or datetime.utcnow(),
+            "reason": appointment_data.reason or "General consultation",
+            "urgency": urgency,
+            "status": AppointmentStatus.SCHEDULED
         }
         
-        result = await db.execute(insert(Appointment).values(**appointment_values).returning(Appointment))
-        new_appointment = result.scalar_one()
+        # Automatically assign a doctor with the least queue
+        doctor_id = await QueueService.get_doctor_with_least_queue(db)
+        if doctor_id:
+            appointment_obj["doctor_id"] = doctor_id
+            
+            # Get doctor name for notification
+            result = await db.execute(
+                select(Doctor).join(User, Doctor.user_id == User.id).where(Doctor.id == doctor_id)
+            )
+            doctor_data = result.first()
+            doctor_name = None
+            if doctor_data:
+                doctor, user = doctor_data
+                doctor_name = f"Dr. {user.first_name} {user.last_name}"
+                
+        # Insert the appointment
+        result = await db.execute(insert(Appointment).values(**appointment_obj).returning(Appointment))
+        appointment = result.scalar_one()
         await db.commit()
         
         # Log audit event
@@ -764,19 +781,46 @@ async def create_appointment(
             user_type="patient",
             action="create",
             resource="appointment",
-            resource_id=new_appointment.id,
-            details=f"Appointment created with urgency: {appointment_data.urgency}",
+            resource_id=appointment.id,
+            details=f"Patient created appointment",
             db=db
         )
         
-        return new_appointment
+        # Add to queue
+        try:
+            queue_entry = await QueueService.add_to_queue(db, appointment.id)
+            
+            # Send confirmation notification using the global instance
+            background_tasks.add_task(
+                notification_service.send_appointment_confirmation,
+                db=db,
+                patient_id=current_patient.id,
+                appointment_id=appointment.id,
+                queue_number=queue_entry.queue_number
+            )
+            
+            # Include additional info in response
+            setattr(appointment, 'queue_number', queue_entry.queue_number)
+            setattr(appointment, 'queue_position', 1)  # New appointment is typically at the end
+            setattr(appointment, 'estimated_wait_time', queue_entry.estimated_wait_time)
+            
+        except Exception as queue_error:
+            print(f"Error adding to queue: {str(queue_error)}")
+            # Continue with appointment creation even if queue fails
         
+        return appointment
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         await db.rollback()
-        logging.error(f"Appointment creation failed: {str(e)}")
+        print(f"Error creating appointment: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create appointment: {str(e)}"
+            detail="Failed to create appointment"
         )
 
 

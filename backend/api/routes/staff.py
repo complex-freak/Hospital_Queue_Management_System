@@ -19,7 +19,6 @@ from schemas import (
     NotificationFromTemplate
 )
 from services import AuthService, AppointmentService, QueueService, NotificationService, PatientService
-from services.__init__ import NotificationService  # Ensure the latest version is imported
 from api.dependencies import require_staff, log_audit_event
 from api.core.security import create_access_token
 from api.core.config import settings
@@ -88,6 +87,13 @@ async def create_appointment(
                 detail="Patient not found"
             )
         
+        # If doctor not specified, automatically assign one with the least queue
+        if not appointment_data.doctor_id:
+            doctor_id = await QueueService.get_doctor_with_least_queue(db)
+            if doctor_id:
+                appointment_data.doctor_id = doctor_id
+                print(f"Automatically assigned doctor with ID: {doctor_id}")
+        
         # Create appointment directly
         print("Creating appointment directly")
         appointment_values = {
@@ -120,8 +126,23 @@ async def create_appointment(
             db=db
         )
         
-        # Skip queue creation for now
-        print("Skipping queue creation to avoid error")
+        # Add to queue
+        try:
+            queue_entry = await QueueService.add_to_queue(db, appointment.id)
+            print(f"Added to queue with ID: {queue_entry.id}")
+            
+            # Send notification to patient
+            notification_service = NotificationService()
+            background_tasks.add_task(
+                notification_service.send_appointment_confirmation,
+                db=db,
+                patient_id=patient.id,
+                appointment_id=appointment.id,
+                queue_number=queue_entry.queue_number
+            )
+        except Exception as queue_error:
+            print(f"Error adding to queue: {str(queue_error)}")
+            # Continue with appointment creation even if queue fails
         
         return appointment
         
@@ -253,9 +274,8 @@ async def update_queue_entry(
     current_user: User = Depends(require_staff),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update queue entry (reorder, change priority)"""
+    """Update queue entry"""
     try:
-        # Get the queue entry
         result = await db.execute(
             select(Queue).where(Queue.id == queue_id)
         )
@@ -267,11 +287,13 @@ async def update_queue_entry(
                 detail="Queue entry not found"
             )
         
-        # Update fields
+        # Update queue fields
         for field, value in queue_update.model_dump(exclude_unset=True).items():
             setattr(queue_entry, field, value)
         
+        # Update timestamp
         queue_entry.updated_at = datetime.utcnow()
+        
         await db.commit()
         await db.refresh(queue_entry)
         
@@ -283,10 +305,23 @@ async def update_queue_entry(
             user_type="user",
             action="update",
             resource="queue",
-            resource_id=queue_id,
-            details=f"Staff {current_user.username} updated queue entry {queue_id}",
+            resource_id=queue_entry.id,
+            details=f"Staff {current_user.username} updated queue entry",
             db=db
         )
+        
+        # If status changed, update queue positions and send notifications
+        if "status" in queue_update.model_dump(exclude_unset=True):
+            # Create notification service
+            notification_service = NotificationService()
+            
+            # Update queue positions and send notifications
+            background_tasks.add_task(
+                QueueService.update_queue_positions,
+                db=db,
+                doctor_id=queue_entry.doctor_id,
+                notification_service=notification_service
+            )
         
         return queue_entry
         
@@ -298,7 +333,7 @@ async def update_queue_entry(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Queue update failed"
+            detail="Failed to update queue entry"
         )
 
 @router.post("/queue/{queue_id}/call-next")

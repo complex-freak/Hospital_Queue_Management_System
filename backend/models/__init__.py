@@ -111,6 +111,7 @@ class User(Base):
     # Relationships
     doctor_profile = relationship("Doctor", back_populates="user", uselist=False)
     created_appointments = relationship("Appointment", back_populates="created_by_user")
+    notifications = relationship("Notification", foreign_keys="Notification.user_id", back_populates="user")
 
 
 class Doctor(Base):

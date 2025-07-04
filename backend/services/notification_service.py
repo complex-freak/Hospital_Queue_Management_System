@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, insert
+from sqlalchemy import select, func, insert, and_
 from uuid import UUID
 from datetime import datetime
 import asyncio
@@ -20,7 +20,7 @@ try:
 except ImportError:
     FCMNotification = None
 
-from models import Notification, Patient, Queue, Doctor, NotificationType
+from models import Notification, Patient, Queue, Doctor, NotificationType, DeviceToken, User
 from schemas import NotificationCreate
 from api.core.config import settings
 
@@ -519,6 +519,166 @@ class NotificationService:
                 if total_notifications > 0 else 0
             )
         }
+    
+    async def send_queue_position_notification(
+        self,
+        db: AsyncSession,
+        patient_id: UUID,
+        queue_number: int,
+        position: int,
+        doctor_name: Optional[str] = None
+    ):
+        """Send notification to patient about their position in the queue"""
+        try:
+            # Get patient details
+            result = await db.execute(
+                select(Patient).where(Patient.id == patient_id)
+            )
+            patient = result.scalar_one_or_none()
+            
+            if not patient:
+                logger.error(f"Patient not found: {patient_id}")
+                return
+            
+            doctor_info = f" with Dr. {doctor_name}" if doctor_name else ""
+            
+            # Different messages based on position
+            if position == 10:
+                message = f"Hello {patient.first_name}, you are now at position 10 in the queue{doctor_info}. Estimated wait time is about 30-45 minutes."
+            elif position == 5:
+                message = f"Hello {patient.first_name}, you are now at position 5 in the queue{doctor_info}. Estimated wait time is about 15-20 minutes."
+            elif position == 3:
+                message = f"Hello {patient.first_name}, you are now at position 3 in the queue{doctor_info}. Please be ready, you'll be called soon."
+            else:
+                message = f"Hello {patient.first_name}, you are now at position {position} in the queue{doctor_info}."
+            
+            # Create notification record
+            notification_data = NotificationCreate(
+                type=NotificationType.SYSTEM,
+                recipient=patient.phone_number,
+                message=message,
+                subject=f"Queue Update: Position {position}",
+                patient_id=patient_id
+            )
+            
+            notification = await self.create_notification(db, notification_data)
+            
+            # Send push notification if device token is available
+            result = await db.execute(
+                select(DeviceToken).where(
+                    and_(
+                        DeviceToken.patient_id == patient_id,
+                        DeviceToken.is_active == True
+                    )
+                )
+            )
+            device_token = result.scalar_one_or_none()
+            
+            if device_token and settings.PUSH_ENABLED:
+                await self.send_push_notification(
+                    fcm_token=device_token.token,
+                    title=f"Queue Update: Position {position}",
+                    message=message,
+                    notification_id=notification.id,
+                    db=db
+                )
+            # Fall back to SMS
+            elif settings.SMS_ENABLED:
+                await self.send_sms(
+                    phone_number=patient.phone_number,
+                    message=message,
+                    notification_id=notification.id,
+                    db=db
+                )
+            
+            return notification
+                
+        except Exception as e:
+            logger.error(f"Error sending queue position notification: {str(e)}")
+            return None
+    
+    async def send_doctor_manual_notification(
+        self,
+        db: AsyncSession,
+        patient_id: UUID,
+        doctor_id: UUID,
+        message: str,
+        subject: str = "Message from your doctor"
+    ):
+        """Send a manual notification from a doctor to a patient"""
+        try:
+            # Get patient details
+            result = await db.execute(
+                select(Patient).where(Patient.id == patient_id)
+            )
+            patient = result.scalar_one_or_none()
+            
+            if not patient:
+                logger.error(f"Patient not found: {patient_id}")
+                return None
+            
+            # Get doctor details
+            result = await db.execute(
+                select(Doctor).where(Doctor.id == doctor_id)
+            )
+            doctor = result.scalar_one_or_none()
+            
+            if not doctor:
+                logger.error(f"Doctor not found: {doctor_id}")
+                return None
+            
+            # Use a generic doctor name instead of querying the User model
+            doctor_name = f"Dr. {doctor.id}"
+            
+            # Customize message if not already mentioning the doctor
+            if "doctor" not in message.lower():
+                message = f"Message from your doctor: {message}"
+            
+            # Create notification record
+            notification_data = NotificationCreate(
+                type=NotificationType.SYSTEM,
+                recipient=patient.phone_number,
+                message=message,
+                subject=subject,
+                patient_id=patient_id,
+                user_id=doctor.user_id
+            )
+            
+            notification = await self.create_notification(db, notification_data)
+            
+            # Send push notification if device token is available
+            result = await db.execute(
+                select(DeviceToken).where(
+                    and_(
+                        DeviceToken.patient_id == patient_id,
+                        DeviceToken.is_active == True
+                    )
+                )
+            )
+            device_token = result.scalar_one_or_none()
+            
+            if device_token and settings.PUSH_ENABLED:
+                await self.send_push_notification(
+                    fcm_token=device_token.token,
+                    title=subject,
+                    message=message,
+                    notification_id=notification.id,
+                    db=db
+                )
+            # Fall back to SMS
+            elif settings.SMS_ENABLED:
+                await self.send_sms(
+                    phone_number=patient.phone_number,
+                    message=message,
+                    notification_id=notification.id,
+                    db=db
+                )
+            
+            return notification
+                
+        except Exception as e:
+            logger.error(f"Error sending doctor manual notification: {str(e)}")
+            return None
 
 
 # Global notification service instance

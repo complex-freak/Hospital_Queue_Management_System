@@ -1,2 +1,5 @@
 INFO:     Will watch for changes in these directories: ['/home/osboxes/Desktop/hospitalapp']
 ERROR:    [Errno 98] Address already in use
+
+
+{"detail":[{"type":"missing","loc":["body","appointment_date"],"msg":"Field required","input":{"patient_id":"f96fd436-43da-4b47-ae25-822900babd92","reason":"Checkup","urgency":"normal","status":"waiting"}}]}

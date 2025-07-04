@@ -1,13 +1,16 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, or_, insert, column
+from sqlalchemy import select, and_, func, or_, insert, column, asc, desc, update
 from uuid import UUID
 from datetime import datetime, date, timedelta
 import asyncio
+import logging
 
 from models import Queue, Appointment, Patient, Doctor, UrgencyLevel, QueueStatus
 from schemas import QueueCreate, QueueUpdate, QueueResponse
+from .notification_service import NotificationService
 
+logger = logging.getLogger(__name__)
 
 class QueueService:
     @staticmethod
@@ -53,6 +56,31 @@ class QueueService:
             next_queue_number = max_queue_number + 1
             print(f"Next queue number: {next_queue_number}")
             
+            # If doctor_id is not provided, find the doctor with the least queue
+            assigned_doctor_id = doctor_id or appointment.doctor_id
+            if not assigned_doctor_id:
+                # Get the department from the appointment reason if available
+                department = None
+                if appointment.reason and len(appointment.reason) > 0:
+                    # Simple logic to extract potential department from reason
+                    # In a real app, you might have a more sophisticated classification
+                    if "cardio" in appointment.reason.lower():
+                        department = "Cardiology"
+                    elif "ortho" in appointment.reason.lower():
+                        department = "Orthopedics"
+                    # Add more department mappings as needed
+                
+                # Find doctor with least queue
+                assigned_doctor_id = await QueueService.get_doctor_with_least_queue(db)
+                
+                if assigned_doctor_id:
+                    # Update the appointment with the assigned doctor
+                    appointment.doctor_id = assigned_doctor_id
+                    await db.commit()
+                    print(f"Assigned doctor with ID: {assigned_doctor_id}")
+                else:
+                    print("No available doctors found")
+            
             # Calculate priority score
             priority_score = await QueueService._calculate_priority_score(
                 db, appointment, priority_override
@@ -61,7 +89,7 @@ class QueueService:
             
             # Create queue entry
             estimated_wait_time = await QueueService._calculate_estimated_wait_time(
-                db, doctor_id or appointment.doctor_id
+                db, assigned_doctor_id
             )
             print(f"Estimated wait time: {estimated_wait_time}")
             
@@ -76,8 +104,8 @@ class QueueService:
             }
             
             # Only add doctor_id if it's not None
-            if doctor_id or appointment.doctor_id:
-                queue_values["doctor_id"] = doctor_id or appointment.doctor_id
+            if assigned_doctor_id:
+                queue_values["doctor_id"] = assigned_doctor_id
             
             print(f"Queue values: {queue_values}")
             
@@ -124,20 +152,30 @@ class QueueService:
         
         base_score = 100
         
-        # Urgency level adjustment
+        # Urgency level adjustment - higher weights for priority
         if appointment.urgency == UrgencyLevel.EMERGENCY:
-            base_score += 1000
+            base_score += 3000  # Highest priority for emergencies
         elif appointment.urgency == UrgencyLevel.HIGH:
-            base_score += 500
+            base_score += 1000  # High priority
         elif appointment.urgency == UrgencyLevel.NORMAL:
-            base_score += 0
+            base_score += 0     # Default priority
         elif appointment.urgency == UrgencyLevel.LOW:
-            base_score -= 100
+            base_score -= 200   # Lower priority
         
-        # Time-based adjustment (waiting time)
+        # Time-based adjustment (waiting time) - FIFO component
         time_diff = datetime.utcnow() - appointment.created_at
         hours_waiting = time_diff.total_seconds() / 3600
-        base_score += int(hours_waiting * 10)  # 10 points per hour of waiting
+        
+        # Gradually increase priority based on wait time
+        # Weight waiting time more heavily for lower priority appointments
+        if appointment.urgency == UrgencyLevel.LOW:
+            wait_score = int(hours_waiting * 25)  # Give more weight to waiting time for low priority
+        elif appointment.urgency == UrgencyLevel.NORMAL:
+            wait_score = int(hours_waiting * 15)  # Standard weight
+        else:
+            wait_score = int(hours_waiting * 10)  # Less weight for already high priority cases
+            
+        base_score += wait_score
         
         return base_score
     
@@ -191,6 +229,64 @@ class QueueService:
             )
         )
         return result.scalar_one_or_none()
+    
+    @staticmethod
+    async def get_queue_status(
+        db: AsyncSession, 
+        patient_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """Get current queue status for a patient and return in QueueStatusResponse format"""
+        queue_entry = await QueueService.get_patient_queue_status(db, patient_id)
+        
+        if not queue_entry:
+            return None
+            
+        # Get position in queue
+        result = await db.execute(
+            select(func.count(Queue.id)).where(
+                and_(
+                    Queue.status == QueueStatus.WAITING,
+                    Queue.priority_score > queue_entry.priority_score,
+                    func.date(Queue.created_at) == func.date(queue_entry.created_at)
+                )
+            )
+        )
+        queue_position = result.scalar() or 0
+        queue_position += 1  # Add one for current position
+        
+        # Get total in queue
+        result = await db.execute(
+            select(func.count(Queue.id)).where(
+                and_(
+                    Queue.status == QueueStatus.WAITING,
+                    func.date(Queue.created_at) == func.date(queue_entry.created_at)
+                )
+            )
+        )
+        total_in_queue = result.scalar() or 0
+        
+        # Get current serving number
+        result = await db.execute(
+            select(Queue.queue_number).where(
+                and_(
+                    Queue.status == QueueStatus.SERVING,
+                    func.date(Queue.created_at) == func.date(queue_entry.created_at)
+                )
+            ).order_by(Queue.served_at.desc()).limit(1)
+        )
+        current_serving = result.scalar()
+        
+        # Format as QueueStatusResponse
+        return {
+            "queue_id": queue_entry.id,
+            "queue_position": queue_position,
+            "your_number": queue_entry.queue_number,
+            "estimated_wait_time": queue_entry.estimated_wait_time,
+            "status": queue_entry.status,
+            "appointment_id": queue_entry.appointment_id,
+            "total_in_queue": total_in_queue,
+            "current_serving": current_serving
+        }
     
     @staticmethod
     async def get_doctor_queue(
@@ -440,3 +536,94 @@ class QueueService:
         await db.refresh(queue_entry)
         
         return queue_entry
+    
+    @staticmethod
+    async def get_doctor_with_least_queue(db: AsyncSession) -> Optional[UUID]:
+        """
+        Find the doctor with the least number of patients in queue
+        Returns the doctor's ID
+        """
+        # Count the number of active queue entries for each doctor
+        result = await db.execute(
+            select(
+                Appointment.doctor_id,
+                func.count(Queue.id).label("queue_count")
+            )
+            .join(Queue, Queue.appointment_id == Appointment.id)
+            .where(
+                and_(
+                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED]),
+                    func.date(Queue.created_at) == func.current_date()
+                )
+            )
+            .group_by(Appointment.doctor_id)
+            .order_by(asc("queue_count"))
+        )
+        doctor_with_count = result.first()
+        
+        if doctor_with_count:
+            return doctor_with_count[0]  # Return the doctor_id
+        
+        # If no doctors found with queue, get the first available doctor
+        result = await db.execute(
+            select(Doctor.id)
+            .where(Doctor.is_available == True)
+            .limit(1)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        return doctor  # May be None if no doctors available
+    
+    @staticmethod
+    async def update_queue_positions(
+        db: AsyncSession,
+        doctor_id: Optional[UUID] = None,
+        notification_service: Optional[NotificationService] = None
+    ):
+        """
+        Update queue positions after a patient is served or removed
+        Optionally send notifications to waiting patients
+        """
+        # Build the base query for waiting patients
+        query = (
+            select(Queue)
+            .join(Appointment, Queue.appointment_id == Appointment.id)
+            .where(Queue.status == QueueStatus.WAITING)
+            .order_by(desc(Queue.priority_score), asc(Queue.queue_number))
+        )
+        
+        # Filter by doctor if specified
+        if doctor_id:
+            query = query.where(Appointment.doctor_id == doctor_id)
+        
+        # Get all waiting queue entries
+        result = await db.execute(query)
+        queue_entries = result.scalars().all()
+        
+        # Update positions and send notifications if service provided
+        for position, entry in enumerate(queue_entries, 1):
+            # Estimated wait time (5-10 min per position)
+            estimated_wait = position * 8  # minutes
+            
+            if notification_service and position <= 3:
+                # Only notify the next few patients
+                try:
+                    # Get patient ID from appointment
+                    appointment_result = await db.execute(
+                        select(Appointment)
+                        .where(Appointment.id == entry.appointment_id)
+                    )
+                    appointment = appointment_result.scalar_one_or_none()
+                    
+                    if appointment:
+                        # Send queue position update notification
+                        await notification_service.send_queue_position_update(
+                            db=db,
+                            patient_id=appointment.patient_id,
+                            queue_position=position,
+                            estimated_wait_time=estimated_wait
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to send queue position update: {str(e)}")
+        
+        return queue_entries
