@@ -92,7 +92,7 @@ const App = () => (
                 } 
               />
               <Route 
-                path="/register-patient" 
+                path="/receptionist/register-patient" 
                 element={
                   <RoleBasedRoute allowedRoles={['receptionist', 'staff']}>
                     <PatientRegistration />

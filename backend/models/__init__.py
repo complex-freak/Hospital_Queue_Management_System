@@ -164,6 +164,8 @@ class Queue(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     appointment_id = Column(UUID(as_uuid=True), ForeignKey("appointments.id"), unique=True, nullable=False)
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=True)
+    doctor_id = Column(UUID(as_uuid=True), ForeignKey("doctors.id"), nullable=True)
     queue_number = Column(Integer, nullable=False)
     priority_score = Column(Integer, default=0)
     status = Column(SQLEnum(QueueStatus), default=QueueStatus.WAITING)

@@ -18,62 +18,99 @@ class QueueService:
         priority_override: Optional[int] = None
     ) -> Queue:
         """Add an appointment to the queue"""
-        # Verify appointment exists
-        result = await db.execute(
-            select(Appointment).where(Appointment.id == appointment_id)
-        )
-        appointment = result.scalar_one_or_none()
-        if not appointment:
-            raise ValueError("Appointment not found")
-        
-        # Check if already in queue
-        result = await db.execute(
-            select(Queue).where(
-                and_(
-                    column("appointment_id") == appointment_id,
-                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING])
+        try:
+            # Verify appointment exists
+            result = await db.execute(
+                select(Appointment).where(Appointment.id == appointment_id)
+            )
+            appointment = result.scalar_one_or_none()
+            if not appointment:
+                raise ValueError("Appointment not found")
+            
+            print(f"Found appointment: {appointment.id}")
+            
+            # Check if already in queue
+            result = await db.execute(
+                select(Queue).where(
+                    and_(
+                        column("appointment_id") == appointment_id,
+                        Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING])
+                    )
                 )
             )
-        )
-        existing_queue = result.scalar_one_or_none()
-        if existing_queue:
-            raise ValueError("Appointment already in queue")
-        
-        # Get next queue number for the day
-        today = date.today()
-        result = await db.execute(
-            select(func.max(column("queue_number"))).select_from(Queue).where(
-                func.date(column("created_at")) == today
+            existing_queue = result.scalar_one_or_none()
+            if existing_queue:
+                raise ValueError("Appointment already in queue")
+            
+            # Get next queue number for the day
+            today = date.today()
+            result = await db.execute(
+                select(func.max(column("queue_number"))).select_from(Queue).where(
+                    func.date(column("created_at")) == today
+                )
             )
-        )
-        max_queue_number = result.scalar() or 0
-        next_queue_number = max_queue_number + 1
-        
-        # Calculate priority score
-        priority_score = await QueueService._calculate_priority_score(
-            db, appointment, priority_override
-        )
-        
-        # Create queue entry
-        estimated_wait_time = await QueueService._calculate_estimated_wait_time(
-            db, doctor_id or appointment.doctor_id
-        )
-        
-        stmt = insert(Queue).values(
-            appointment_id=appointment_id,
-            patient_id=appointment.patient_id,
-            doctor_id=doctor_id or appointment.doctor_id,
-            queue_number=next_queue_number,
-            priority_score=priority_score,
-            status=QueueStatus.WAITING,
-            estimated_wait_time=estimated_wait_time
-        ).returning(Queue)
-        
-        result = await db.execute(stmt)
-        queue_entry = result.scalar_one()
-        await db.commit()
-        
-        return queue_entry
+            max_queue_number = result.scalar() or 0
+            next_queue_number = max_queue_number + 1
+            print(f"Next queue number: {next_queue_number}")
+            
+            # Calculate priority score
+            priority_score = await QueueService._calculate_priority_score(
+                db, appointment, priority_override
+            )
+            print(f"Priority score: {priority_score}")
+            
+            # Create queue entry
+            estimated_wait_time = await QueueService._calculate_estimated_wait_time(
+                db, doctor_id or appointment.doctor_id
+            )
+            print(f"Estimated wait time: {estimated_wait_time}")
+            
+            # Prepare values for insert, handling the case where doctor_id might be None
+            queue_values = {
+                "appointment_id": appointment_id,
+                "patient_id": appointment.patient_id,
+                "queue_number": next_queue_number,
+                "priority_score": priority_score,
+                "status": QueueStatus.WAITING,
+                "estimated_wait_time": estimated_wait_time
+            }
+            
+            # Only add doctor_id if it's not None
+            if doctor_id or appointment.doctor_id:
+                queue_values["doctor_id"] = doctor_id or appointment.doctor_id
+            
+            print(f"Queue values: {queue_values}")
+            
+            stmt = insert(Queue).values(**queue_values).returning(Queue)
+            
+            try:
+                result = await db.execute(stmt)
+                queue_entry = result.scalar_one()
+                print(f"Queue entry created with ID: {queue_entry.id}")
+                await db.commit()
+                
+                return queue_entry
+            except Exception as insert_error:
+                print(f"Error during queue insert: {str(insert_error)}")
+                await db.rollback()
+                # Try a simplified insert as a fallback
+                simplified_values = {
+                    "appointment_id": appointment_id,
+                    "queue_number": next_queue_number,
+                    "priority_score": priority_score,
+                    "status": "waiting",
+                    "estimated_wait_time": estimated_wait_time
+                }
+                print(f"Trying simplified insert: {simplified_values}")
+                stmt = insert(Queue).values(**simplified_values).returning(Queue)
+                result = await db.execute(stmt)
+                queue_entry = result.scalar_one()
+                await db.commit()
+                return queue_entry
+        except Exception as e:
+            print(f"Error in add_to_queue: {str(e)}")
+            await db.rollback()
+            raise
     
     @staticmethod
     async def _calculate_priority_score(

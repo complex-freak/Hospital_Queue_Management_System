@@ -63,6 +63,16 @@ export const receptionistService = {
   // Register a new patient
   registerPatient: async (patientData: PatientRegistrationData) => {
     try {
+      // Ensure phone number has international format with + prefix
+      const phoneNumber = patientData.phone.startsWith('+') 
+        ? patientData.phone 
+        : `+${patientData.phone}`;
+      
+      // Format emergency contact phone number
+      const emergencyPhone = patientData.emergencyContactPhone.startsWith('+')
+        ? patientData.emergencyContactPhone
+        : `+${patientData.emergencyContactPhone}`;
+      
       // Transform data to match backend schema
       const backendData = {
         first_name: patientData.firstName,
@@ -70,24 +80,18 @@ export const receptionistService = {
         date_of_birth: patientData.dateOfBirth,
         gender: patientData.gender,
         email: patientData.email,
-        phone_number: patientData.phone,
-        emergency_contact: patientData.emergencyContactPhone,
+        phone_number: phoneNumber,
+        emergency_contact: emergencyPhone,
         emergency_contact_name: patientData.emergencyContactName,
         emergency_contact_relationship: patientData.emergencyContactRelation,
         // Generate a temporary password for the patient
         password: `Temp${Math.random().toString(36).substring(2, 10)}!`,
-        // Additional medical data
-        medical_data: {
-          allergies: patientData.allergies,
-          medications: patientData.medications,
-          medical_history: patientData.medicalHistory,
-        },
-        // Consent data
-        consent: {
-          treatment: patientData.consentToTreatment,
-          share_data: patientData.consentToShareData || false
-        }
+        // No nested objects - these fields aren't in the PatientCreate schema
+        // and should be handled separately if needed
       };
+      
+      // Debug log the exact data being sent
+      console.log('Patient registration data being sent to backend:', JSON.stringify(backendData));
       
       // Register the patient
       const registerResponse = await api.post('/staff/patients/register', backendData);
@@ -99,6 +103,9 @@ export const receptionistService = {
         urgency: mapPriorityToUrgency(patientData.priority),
         status: 'waiting'
       };
+      
+      // Debug log the appointment data
+      console.log('Appointment data being sent to backend:', JSON.stringify(appointmentData));
       
       const appointmentResponse = await api.post('/staff/appointments', appointmentData);
       
@@ -112,7 +119,9 @@ export const receptionistService = {
         },
       };
     } catch (error: any) {
+      // Log detailed error information
       console.error('Error registering patient:', error);
+      console.error('Error response data:', error.response?.data);
       return { 
         success: false, 
         error: error.response?.data?.detail || 'Failed to register patient' 
