@@ -18,7 +18,9 @@ from schemas import (
     NotificationTemplateCreate, NotificationTemplate, NotificationTemplateUpdate,
     NotificationFromTemplate
 )
-from services import AuthService, AppointmentService, QueueService, NotificationService, PatientService
+from services.queue_service import QueueService
+from services.notification_service import NotificationService
+from services import AuthService, AppointmentService, PatientService
 from api.dependencies import require_staff, log_audit_event
 from api.core.security import create_access_token
 from api.core.config import settings
@@ -107,11 +109,19 @@ async def create_appointment(
             "created_by": current_user.id
         }
         
-        result = await db.execute(insert(Appointment).values(**appointment_values).returning(Appointment))
-        appointment = result.scalar_one()
+        # Insert and get just the ID
+        result = await db.execute(
+            insert(Appointment)
+            .values(**appointment_values)
+            .returning(Appointment.id)
+        )
+        appointment_id = result.scalar_one()
         await db.commit()
+
+        print(f"Appointment created with ID: {appointment_id}")
         
-        print(f"Appointment created with ID: {appointment.id}")
+        # Fetch the full appointment object for later usage
+        appointment = await db.get(Appointment, appointment_id)
         
         # Log audit event for appointment creation
         background_tasks.add_task(
@@ -160,6 +170,7 @@ async def create_appointment(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Appointment creation failed: {str(e)}"
         )
+
 
 @router.get("/appointments", response_model=List[AppointmentSchema])
 async def get_appointments(
