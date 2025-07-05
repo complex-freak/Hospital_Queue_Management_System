@@ -24,7 +24,7 @@ from sqlalchemy.ext.declarative import DeclarativeMeta
 config = context.config
 
 # Set the database URL from environment variable
-config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL", "postgresql+asyncpg://user:password@localhost/queue_db"))
+config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL", "postgresql+asyncpg://postgres:ctfreak06@localhost:5432/queue_management"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

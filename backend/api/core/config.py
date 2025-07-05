@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     API_NAME: str = "Intelligent Queue Management System API"
     
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://user:password@localhost/queue_db"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:ctfreak06@localhost:5432/queue_management"
     
     # CORS
     BACKEND_CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8080", "https://localhost:3000", "https://localhost:8080", "*"]
