@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, desc, asc, insert
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from database import get_db
 from models import (
     Patient, User, Appointment, Queue, QueueStatus, UrgencyLevel, UserRole, 
@@ -19,12 +19,13 @@ from schemas import (
     NotificationFromTemplate
 )
 from services.queue_service import QueueService
-from services.notification_service import NotificationService
+from services import NotificationService
 from services import AuthService, AppointmentService, PatientService
 from api.dependencies import require_staff, log_audit_event
 from api.core.security import create_access_token
 from api.core.config import settings
 from pydantic import BaseModel
+from utils.datetime_utils import get_timezone_aware_now
 import uuid
 
 router = APIRouter()
@@ -57,11 +58,13 @@ async def register_patient_by_staff(
         return patient
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Patient registration failed"
@@ -102,7 +105,7 @@ async def create_appointment(
             "id": UUID(str(uuid.uuid4())),  # Generate a new UUID explicitly
             "patient_id": appointment_data.patient_id,
             "doctor_id": appointment_data.doctor_id,
-            "appointment_date": appointment_data.appointment_date or datetime.utcnow(),
+            "appointment_date": appointment_data.appointment_date or get_timezone_aware_now(),
             "reason": appointment_data.reason,
             "urgency": appointment_data.urgency,
             "status": AppointmentStatus.SCHEDULED,
@@ -120,8 +123,12 @@ async def create_appointment(
 
         print(f"Appointment created with ID: {appointment_id}")
         
-        # Fetch the full appointment object for later usage
-        appointment = await db.get(Appointment, appointment_id)
+        # Fetch the full appointment object with relationships
+        result = await db.execute(
+            select(Appointment)
+            .where(Appointment.id == appointment_id)
+        )
+        appointment = result.scalar_one()
         
         # Log audit event for appointment creation
         background_tasks.add_task(
@@ -142,12 +149,11 @@ async def create_appointment(
             print(f"Added to queue with ID: {queue_entry.id}")
             
             # Send notification to patient
-            notification_service = NotificationService()
             background_tasks.add_task(
-                notification_service.send_appointment_confirmation,
+                NotificationService.notify_appointment_booked,
                 db=db,
-                patient_id=patient.id,
-                appointment_id=appointment.id,
+                patient=patient,
+                appointment=appointment,
                 queue_number=queue_entry.queue_number
             )
         except Exception as queue_error:
@@ -157,12 +163,14 @@ async def create_appointment(
         return appointment
         
     except ValueError as e:
+        await db.rollback()
         print(f"Value error in appointment creation: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         print(f"Error in appointment creation: {str(e)}")
         import traceback
         traceback.print_exc()
@@ -225,7 +233,7 @@ async def update_appointment(
         for field, value in appointment_update.model_dump(exclude_unset=True).items():
             setattr(appointment, field, value)
         
-        appointment.updated_at = datetime.utcnow()
+        appointment.updated_at = get_timezone_aware_now()
         await db.commit()
         await db.refresh(appointment)
         
@@ -245,11 +253,13 @@ async def update_appointment(
         return appointment
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Appointment update failed"
@@ -303,7 +313,7 @@ async def update_queue_entry(
             setattr(queue_entry, field, value)
         
         # Update timestamp
-        queue_entry.updated_at = datetime.utcnow()
+        queue_entry.updated_at = get_timezone_aware_now()
         
         await db.commit()
         await db.refresh(queue_entry)
@@ -323,25 +333,24 @@ async def update_queue_entry(
         
         # If status changed, update queue positions and send notifications
         if "status" in queue_update.model_dump(exclude_unset=True):
-            # Create notification service
-            notification_service = NotificationService()
-            
             # Update queue positions and send notifications
             background_tasks.add_task(
                 QueueService.update_queue_positions,
                 db=db,
                 doctor_id=queue_entry.doctor_id,
-                notification_service=notification_service
+                notification_service=None
             )
         
         return queue_entry
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update queue entry"
@@ -376,17 +385,18 @@ async def call_next_patient(
         
         # Update queue status to called
         queue_entry.status = QueueStatus.CALLED
-        queue_entry.called_at = datetime.utcnow()
-        queue_entry.updated_at = datetime.utcnow()
+        now = get_timezone_aware_now()
+        queue_entry.called_at = now
+        queue_entry.updated_at = now
         await db.commit()
         await db.refresh(queue_entry)
         
         # Send notification to patient
         background_tasks.add_task(
             NotificationService.notify_turn_ready,
-            db,
-            patient,
-            queue_entry.queue_number
+            db=db,
+            patient=patient,
+            queue_number=queue_entry.queue_number
         )
         
         # Log audit event
@@ -405,6 +415,7 @@ async def call_next_patient(
         return {"message": "Patient called successfully"}
         
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to call patient"
@@ -877,7 +888,7 @@ async def save_patient_draft(
     try:
         # For now, we'll just return the data as if it was saved
         # In a production environment, you would store this in the database
-        draft_data.last_updated = datetime.utcnow()
+        draft_data.last_updated = get_timezone_aware_now()
         return draft_data
         
     except Exception as e:
@@ -944,12 +955,17 @@ async def update_appointment_priority(
         
         # Update queue priority if in queue
         if appointment.queue_entry:
-            appointment.queue_entry.priority_score = await QueueService.calculate_priority_score(
-                UrgencyLevel(urgency), appointment.appointment_date
+            # Temporarily update appointment urgency for priority calculation
+            original_urgency = appointment.urgency
+            appointment.urgency = UrgencyLevel(urgency)
+            appointment.queue_entry.priority_score = await QueueService._calculate_priority_score(
+                db, appointment, None
             )
+            # Restore original urgency
+            appointment.urgency = original_urgency
             
         # Save changes
-        appointment.updated_at = datetime.utcnow()
+        appointment.updated_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(appointment)
         
@@ -1005,7 +1021,7 @@ async def cancel_appointment(
         
         # Update appointment status
         appointment.status = AppointmentStatus.CANCELLED
-        appointment.updated_at = datetime.utcnow()
+        appointment.updated_at = get_timezone_aware_now()
         
         # Add cancellation reason if provided
         reason = cancel_data.get("reason", "Cancelled by staff")
@@ -1014,7 +1030,7 @@ async def cancel_appointment(
         # Remove from queue if in queue
         if appointment.queue_entry:
             appointment.queue_entry.status = QueueStatus.CANCELLED
-            appointment.queue_entry.updated_at = datetime.utcnow()
+            appointment.queue_entry.updated_at = get_timezone_aware_now()
         
         # Save changes
         await db.commit()
@@ -1037,24 +1053,10 @@ async def cancel_appointment(
         if hasattr(appointment, 'patient') and appointment.patient:
             # Inline notification implementation
             async def send_cancellation_notification(db, patient, reason):
-                reason_text = f" Reason: {reason}" if reason else ""
-                message = f"Your appointment has been cancelled.{reason_text} Please contact us to reschedule."
-                
-                # Create and send notification
-                notification_data = NotificationCreate(
-                    patient_id=patient.id,
-                    type=NotificationType.SMS,
-                    recipient=patient.phone_number,
-                    message=message,
-                    subject="Appointment Cancelled"
-                )
-                
-                # Create notification record and send SMS
-                await NotificationService.send_notification(
-                    db, 
-                    patient.id, 
-                    "Appointment Cancelled", 
-                    message
+                await NotificationService.notify_appointment_cancelled(
+                    db=db,
+                    patient=patient,
+                    reason=reason
                 )
             
             background_tasks.add_task(
@@ -1089,7 +1091,8 @@ async def create_notification(
 ):
     """Create and send a notification"""
     try:
-        notification = await NotificationService.create_notification(db, notification_data)
+        notification_service = NotificationService()
+        notification = await notification_service.create_notification(db, notification_data)
         
         # Send notification based on type
         if notification.type == NotificationType.SMS:
@@ -1131,7 +1134,7 @@ async def create_notification(
         
         # Update notification status
         notification.status = "sent" if success else "failed"
-        notification.sent_at = datetime.utcnow() if success else None
+        notification.sent_at = get_timezone_aware_now() if success else None
         await db.commit()
         await db.refresh(notification)
         
@@ -1165,7 +1168,13 @@ async def create_bulk_notifications(
 ):
     """Create and send multiple notifications"""
     try:
-        notifications = await NotificationService.create_bulk_notifications(db, bulk_data)
+        notification_service = NotificationService()
+        notifications = []
+        
+        # Create notifications one by one
+        for notification_data in bulk_data.notifications:
+            notification = await notification_service.create_notification(db, notification_data)
+            notifications.append(notification)
         
         # Log audit event
         background_tasks.add_task(

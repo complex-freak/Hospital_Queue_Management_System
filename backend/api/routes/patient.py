@@ -73,11 +73,13 @@ async def register_patient(
         return patient
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Registration failed"
@@ -356,19 +358,19 @@ async def get_appointment_details(
         if appointment.created_at is None:
             appointment.created_at = appointment.appointment_date or datetime.now()
             
-        # If appointment is in waiting status and include_queue_status is True, 
-        # get the current queue status
-        if include_queue_status and appointment.status == "WAITING":
-            try:
-                queue_status = await QueueService.get_queue_status(db, UUID(appointment_id))
-                # We'll return this as part of the response in the schema
-                appointment.queue_position = queue_status.queue_position if queue_status else None
-                appointment.estimated_wait_time = queue_status.estimated_wait_time if queue_status else None
-                appointment.queue_number = queue_status.your_number if queue_status else None
-            except Exception as e:
-                logging.error(f"Failed to get queue status for appointment: {str(e)}")
-                # Don't fail the whole request if queue status fails
-                pass
+                    # If appointment is in waiting status and include_queue_status is True, 
+            # get the current queue status
+            if include_queue_status and appointment.status == "WAITING":
+                try:
+                    queue_status = await QueueService.get_queue_status(db, UUID(appointment_id))
+                    # We'll return this as part of the response in the schema
+                    appointment.queue_position = queue_status["queue_position"] if queue_status else None
+                    appointment.estimated_wait_time = queue_status["estimated_wait_time"] if queue_status else None
+                    appointment.queue_number = queue_status["your_number"] if queue_status else None
+                except Exception as e:
+                    logging.error(f"Failed to get queue status for appointment: {str(e)}")
+                    # Don't fail the whole request if queue status fails
+                    pass
             
         return appointment
         

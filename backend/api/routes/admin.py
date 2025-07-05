@@ -108,11 +108,13 @@ async def create_user(
         return user
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"User creation failed with error: {str(e)}", exc_info=True)
@@ -229,11 +231,13 @@ async def update_user(
         return user
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="User update failed"
@@ -286,6 +290,7 @@ async def delete_user(
         return {"message": "User deactivated successfully"}
         
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="User deletion failed"
@@ -368,11 +373,13 @@ async def create_doctor(
         return doctor
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Doctor creation failed"
@@ -457,11 +464,13 @@ async def update_doctor(
         return doctor
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Doctor update failed"
@@ -752,13 +761,16 @@ async def create_patient(
         return patient
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except HTTPException as e:
+        await db.rollback()
         raise e
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Patient creation failed: {str(e)}"
@@ -818,11 +830,13 @@ async def send_notification(
         return {"message": "Notification sent successfully", "id": str(notification.id)}
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to send notification: {str(e)}"

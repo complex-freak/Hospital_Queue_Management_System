@@ -343,12 +343,11 @@ async def mark_patient_served(
         await db.commit()
         
         # Update queue positions and send notifications
-        notification_service = NotificationService()
         background_tasks.add_task(
             QueueService.update_queue_positions,
             db=db,
             doctor_id=doctor.id,
-            notification_service=notification_service
+            notification_service=None
         )
         
         # Send completion notification
@@ -379,6 +378,7 @@ async def mark_patient_served(
         return {"message": "Patient marked as served successfully"}
         
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to mark patient as served"
@@ -613,6 +613,7 @@ async def update_doctor_status(
         return updated_doctor
         
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update doctor status"
@@ -686,11 +687,13 @@ async def create_patient_note(
         return note
         
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create patient note"
@@ -1073,25 +1076,12 @@ async def skip_patient(
         queue.status = QueueStatus.SKIPPED
         await db.commit()
         
-        # Create notification service instance
-        notification_service = NotificationService()
-        
-        # Trigger notification for the patient
-        background_tasks.add_task(
-            notification_service.send_queue_position_notification,
-            db=db,
-            patient_id=appointment.patient_id,
-            queue_number=queue.queue_number,
-            position=-1,  # Special value for skipped
-            doctor_name=f"{current_user.first_name} {current_user.last_name}"
-        )
-        
         # Update queue positions and send notifications to other patients
         background_tasks.add_task(
             QueueService.update_queue_positions,
             db=db,
             doctor_id=doctor.id,
-            notification_service=notification_service
+            notification_service=None
         )
         
         # Log the action
@@ -1239,14 +1229,13 @@ async def notify_patient(
                 detail="Patient not found or not assigned to this doctor"
             )
         
-        # Create and send notification
-        notification_service = NotificationService()
-        notification = await notification_service.send_doctor_manual_notification(
+        # Create and send notification using static method
+        notification = await NotificationService.send_notification(
             db=db,
-            patient_id=patient_id,
-            doctor_id=doctor.id,
+            user_id=patient_id,
+            title=notification_data.subject or "Message from your doctor",
             message=notification_data.message,
-            subject=notification_data.subject or "Message from your doctor"
+            notification_type="doctor_message"
         )
         
         if not notification:
@@ -1263,12 +1252,12 @@ async def notify_patient(
             user_type="user",
             action="create",
             resource="notification",
-            resource_id=notification.id,
+            resource_id=notification,
             details=f"Doctor sent notification to patient {patient_id}",
             db=db
         )
         
-        return notification
+        return {"id": str(notification), "message": "Notification sent successfully"}
         
     except ValueError as e:
         raise HTTPException(

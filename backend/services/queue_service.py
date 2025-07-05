@@ -2,13 +2,14 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, or_, insert, column, asc, desc, update
 from uuid import UUID
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import asyncio
 import logging
 
 from models import Queue, Appointment, Patient, Doctor, UrgencyLevel, QueueStatus
 from schemas import QueueCreate, QueueUpdate, QueueResponse
 from .notification_service import NotificationService
+from utils.datetime_utils import get_timezone_aware_now
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +164,9 @@ class QueueService:
             base_score -= 200   # Lower priority
         
         # Time-based adjustment (waiting time) - FIFO component
-        time_diff = datetime.utcnow() - appointment.created_at
+        # Use timezone-aware datetime to avoid timezone issues
+        now = get_timezone_aware_now()
+        time_diff = now - appointment.created_at
         hours_waiting = time_diff.total_seconds() / 3600
         
         # Gradually increase priority based on wait time
@@ -356,12 +359,13 @@ class QueueService:
         if notes:
             queue_entry.notes = notes
         
+        now = get_timezone_aware_now()
         if status == QueueStatus.SERVING:
-            queue_entry.served_at = datetime.utcnow()
+            queue_entry.served_at = now
         elif status == QueueStatus.COMPLETED:
-            queue_entry.completed_at = datetime.utcnow()
+            queue_entry.completed_at = now
         
-        queue_entry.updated_at = datetime.utcnow()
+        queue_entry.updated_at = now
         
         await db.commit()
         await db.refresh(queue_entry)
@@ -392,9 +396,10 @@ class QueueService:
             return None
         
         # Update status to in progress
+        now = get_timezone_aware_now()
         next_patient.status = QueueStatus.SERVING
-        next_patient.served_at = datetime.utcnow()
-        next_patient.updated_at = datetime.utcnow()
+        next_patient.served_at = now
+        next_patient.updated_at = now
         
         await db.commit()
         await db.refresh(next_patient)
@@ -421,7 +426,7 @@ class QueueService:
         
         queue_entry.status = QueueStatus.NO_SHOW
         queue_entry.notes = f"{queue_entry.notes or ''}\nSkipped: {reason}"
-        queue_entry.updated_at = datetime.utcnow()
+        queue_entry.updated_at = get_timezone_aware_now()
         
         await db.commit()
         await db.refresh(queue_entry)
@@ -450,7 +455,7 @@ class QueueService:
             
             if queue_entry and queue_entry.status == QueueStatus.WAITING:
                 queue_entry.priority_score = new_priority
-                queue_entry.updated_at = datetime.utcnow()
+                queue_entry.updated_at = get_timezone_aware_now()
                 updated_entries.append(queue_entry)
         
         if updated_entries:
@@ -530,7 +535,7 @@ class QueueService:
         
         queue_entry.status = QueueStatus.CANCELLED
         queue_entry.notes = f"{queue_entry.notes or ''}\nRemoved: {reason}"
-        queue_entry.updated_at = datetime.utcnow()
+        queue_entry.updated_at = get_timezone_aware_now()
         
         await db.commit()
         await db.refresh(queue_entry)
