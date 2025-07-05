@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, or_, insert, column, asc, desc, update
+from sqlalchemy.orm import selectinload
 from uuid import UUID
 from datetime import datetime, date, timedelta, timezone
 import asyncio
@@ -118,6 +119,17 @@ class QueueService:
                 print(f"Queue entry created with ID: {queue_entry.id}")
                 await db.commit()
                 
+                # Re-fetch the queue entry with relationships loaded
+                result = await db.execute(
+                    select(Queue)
+                    .options(
+                        selectinload(Queue.appointment).selectinload(Appointment.patient),
+                        selectinload(Queue.appointment).selectinload(Appointment.doctor)
+                    )
+                    .where(Queue.id == queue_entry.id)
+                )
+                queue_entry = result.scalar_one()
+                
                 return queue_entry
             except Exception as insert_error:
                 print(f"Error during queue insert: {str(insert_error)}")
@@ -131,10 +143,21 @@ class QueueService:
                     "estimated_wait_time": estimated_wait_time
                 }
                 print(f"Trying simplified insert: {simplified_values}")
-                stmt = insert(Queue).values(**simplified_values).returning(Queue)
+                # Only return the ID, then fetch the model instance
+                stmt = insert(Queue).values(**simplified_values).returning(Queue.id)
                 result = await db.execute(stmt)
-                queue_entry = result.scalar_one()
+                queue_id = result.scalar_one()
                 await db.commit()
+                # Re-fetch the queue entry with relationships loaded
+                result = await db.execute(
+                    select(Queue)
+                    .options(
+                        selectinload(Queue.appointment).selectinload(Appointment.patient),
+                        selectinload(Queue.appointment).selectinload(Appointment.doctor)
+                    )
+                    .where(Queue.id == queue_id)
+                )
+                queue_entry = result.scalar_one()
                 return queue_entry
         except Exception as e:
             print(f"Error in add_to_queue: {str(e)}")

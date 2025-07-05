@@ -3,6 +3,7 @@ from datetime import timedelta, datetime
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field
 from uuid import UUID
 import logging
@@ -305,6 +306,7 @@ async def get_patient_appointments(
         
         result = await db.execute(
             select(Appointment)
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
             .where(Appointment.patient_id == current_patient.id)
             .order_by(Appointment.appointment_date.desc())
             .offset(offset)
@@ -341,6 +343,7 @@ async def get_appointment_details(
     try:
         result = await db.execute(
             select(Appointment)
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
             .where(
                 Appointment.id == appointment_id,
                 Appointment.patient_id == current_patient.id
@@ -771,9 +774,17 @@ async def create_appointment(
                 doctor_name = f"Dr. {user.first_name} {user.last_name}"
                 
         # Insert the appointment
-        result = await db.execute(insert(Appointment).values(**appointment_obj).returning(Appointment))
-        appointment = result.scalar_one()
+        result = await db.execute(insert(Appointment).values(**appointment_obj).returning(Appointment.id))
+        appointment_id = result.scalar_one()
         await db.commit()
+        
+        # Re-fetch the appointment with relationships loaded
+        result = await db.execute(
+            select(Appointment)
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .where(Appointment.id == appointment_id)
+        )
+        appointment = result.scalar_one()
         
         # Log audit event
         background_tasks.add_task(
@@ -864,7 +875,14 @@ async def cancel_appointment(
         appointment.updated_at = datetime.now()
         
         await db.commit()
-        await db.refresh(appointment)
+        
+        # Re-fetch the appointment with relationships loaded
+        result = await db.execute(
+            select(Appointment)
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .where(Appointment.id == appointment_id)
+        )
+        appointment = result.scalar_one()
         
         # Log audit event
         background_tasks.add_task(

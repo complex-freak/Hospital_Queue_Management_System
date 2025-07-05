@@ -2,6 +2,7 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, desc, asc, insert
+from sqlalchemy.orm import selectinload
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from database import get_db
@@ -126,6 +127,7 @@ async def create_appointment(
         # Fetch the full appointment object with relationships
         result = await db.execute(
             select(Appointment)
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
             .where(Appointment.id == appointment_id)
         )
         appointment = result.scalar_one()
@@ -160,7 +162,15 @@ async def create_appointment(
             print(f"Error adding to queue: {str(queue_error)}")
             # Continue with appointment creation even if queue fails
         
-        return appointment
+        # Re-fetch the appointment with relationships loaded before returning
+        result = await db.execute(
+            select(Appointment)
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .where(Appointment.id == appointment.id)
+        )
+        appointment = result.scalar_one()
+        # Convert to Pydantic schema to avoid MissingGreenlet issues
+        return AppointmentSchema.from_orm(appointment)
         
     except ValueError as e:
         await db.rollback()
@@ -190,7 +200,10 @@ async def get_appointments(
 ):
     """Get all appointments (staff view)"""
     try:
-        query = select(Appointment).order_by(desc(Appointment.created_at))
+        query = select(Appointment).options(
+            selectinload(Appointment.patient),
+            selectinload(Appointment.doctor)
+        ).order_by(desc(Appointment.created_at))
         
         if status_filter:
             query = query.where(Appointment.status == status_filter)
@@ -199,7 +212,8 @@ async def get_appointments(
         result = await db.execute(query)
         appointments = result.scalars().all()
         
-        return appointments
+        # Convert to Pydantic schemas to avoid MissingGreenlet issues
+        return [AppointmentSchema.from_orm(appointment) for appointment in appointments]
         
     except Exception as e:
         raise HTTPException(
@@ -235,7 +249,14 @@ async def update_appointment(
         
         appointment.updated_at = get_timezone_aware_now()
         await db.commit()
-        await db.refresh(appointment)
+        
+        # Re-fetch the appointment with relationships loaded
+        result = await db.execute(
+            select(Appointment)
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .where(Appointment.id == appointment_id)
+        )
+        appointment = result.scalar_one()
         
         # Log audit event
         background_tasks.add_task(
@@ -250,7 +271,8 @@ async def update_appointment(
             db=db
         )
         
-        return appointment
+        # Convert to Pydantic schema to avoid MissingGreenlet issues
+        return AppointmentSchema.from_orm(appointment)
         
     except ValueError as e:
         await db.rollback()
@@ -275,11 +297,16 @@ async def get_queue_status(
         # Get all queue entries for today
         result = await db.execute(
             select(Queue)
+            .options(
+                selectinload(Queue.appointment).selectinload(Appointment.patient),
+                selectinload(Queue.appointment).selectinload(Appointment.doctor)
+            )
             .where(func.date(Queue.created_at) == func.current_date())
             .order_by(desc(Queue.priority_score), asc(Queue.queue_number))
         )
         queue_entries = result.scalars().all()
-        return queue_entries
+        # Convert to Pydantic schemas to avoid MissingGreenlet issues
+        return [QueueSchema.from_orm(queue_entry) for queue_entry in queue_entries]
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -316,7 +343,17 @@ async def update_queue_entry(
         queue_entry.updated_at = get_timezone_aware_now()
         
         await db.commit()
-        await db.refresh(queue_entry)
+        
+        # Re-fetch the queue entry with relationships loaded
+        result = await db.execute(
+            select(Queue)
+            .options(
+                selectinload(Queue.appointment).selectinload(Appointment.patient),
+                selectinload(Queue.appointment).selectinload(Appointment.doctor)
+            )
+            .where(Queue.id == queue_id)
+        )
+        queue_entry = result.scalar_one()
         
         # Log audit event
         background_tasks.add_task(
@@ -341,7 +378,8 @@ async def update_queue_entry(
                 notification_service=None
             )
         
-        return queue_entry
+        # Convert to Pydantic schema to avoid MissingGreenlet issues
+        return QueueSchema.from_orm(queue_entry)
         
     except ValueError as e:
         await db.rollback()
@@ -447,7 +485,8 @@ async def search_patients(
         )
         patients = result.scalars().all()
         
-        return patients
+        # Convert to Pydantic schemas to avoid MissingGreenlet issues
+        return [PatientSchema.from_orm(patient) for patient in patients]
         
     except Exception as e:
         raise HTTPException(
@@ -665,9 +704,20 @@ async def create_queue(
     try:
         # Create queue entry
         queue_values = queue_data.model_dump()
-        result = await db.execute(insert(Queue).values(**queue_values).returning(Queue))
-        queue = result.scalar_one()
+        result = await db.execute(insert(Queue).values(**queue_values).returning(Queue.id))
+        queue_id = result.scalar_one()
         await db.commit()
+        
+        # Re-fetch the queue entry with relationships loaded
+        result = await db.execute(
+            select(Queue)
+            .options(
+                selectinload(Queue.appointment).selectinload(Appointment.patient),
+                selectinload(Queue.appointment).selectinload(Appointment.doctor)
+            )
+            .where(Queue.id == queue_id)
+        )
+        queue = result.scalar_one()
         
         # Log audit event
         background_tasks.add_task(
@@ -869,7 +919,8 @@ async def get_all_patients(
         result = await db.execute(query)
         patients = result.scalars().all()
         
-        return patients
+        # Convert to Pydantic schemas to avoid MissingGreenlet issues
+        return [PatientSchema.from_orm(patient) for patient in patients]
         
     except Exception as e:
         raise HTTPException(
@@ -1034,7 +1085,14 @@ async def cancel_appointment(
         
         # Save changes
         await db.commit()
-        await db.refresh(appointment)
+        
+        # Re-fetch the appointment with relationships loaded
+        result = await db.execute(
+            select(Appointment)
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .where(Appointment.id == appointment_id)
+        )
+        appointment = result.scalar_one()
         
         # Log audit event
         background_tasks.add_task(
