@@ -67,9 +67,17 @@ interface QueueMonitorProps {
   patients: Patient[];
   doctors: Doctor[];
   isLoading: boolean;
+  onRemovePatient?: (patientId: string) => void;
+  onAssignDoctor?: (patientId: string, doctorId: string) => void;
 }
 
-const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, doctors, isLoading }) => {
+const QueueMonitor: React.FC<QueueMonitorProps> = ({ 
+  patients: initialPatients, 
+  doctors, 
+  isLoading,
+  onRemovePatient,
+  onAssignDoctor 
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [sortField, setSortField] = useState('checkInTime');
@@ -141,7 +149,19 @@ const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, 
         const matchesPriority = 
           priorityFilter === 'all' || 
           patient.priority?.toLowerCase() === priorityFilter.toLowerCase() ||
-          patient.conditionType?.toLowerCase() === priorityFilter.toLowerCase();
+          (() => {
+            // Map conditionType to priority for filtering
+            if (patient.conditionType) {
+              switch (patient.conditionType.toLowerCase()) {
+                case 'emergency': return priorityFilter === 'high';
+                case 'elderly': return priorityFilter === 'high';
+                case 'child': return priorityFilter === 'medium';
+                case 'normal': return priorityFilter === 'low';
+                default: return false;
+              }
+            }
+            return false;
+          })();
         
         return matchesSearch && matchesPriority;
       })
@@ -186,6 +206,12 @@ const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, 
   };
 
   const handleRemovePatient = async (patientId: string) => {
+    // Use passed handler if available, otherwise use local implementation
+    if (onRemovePatient) {
+      onRemovePatient(patientId);
+      return;
+    }
+
     try {
       const patientToRemove = patients.find(p => p.id === patientId);
       
@@ -194,7 +220,7 @@ const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, 
       
       if (isOnline) {
         // Call the API to remove patient
-        const result = await queueService.skipPatient(patientId);
+        const result = await receptionistService.removeFromQueue(patientId, 'Removed by staff');
         
         if (!result.success) {
           throw new Error(result.error || 'Failed to remove patient');
@@ -270,35 +296,54 @@ const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, 
   };
 
   const handleAssignDoctor = async (patientId: string, doctorId: string) => {
+    // Use passed handler if available, otherwise use local implementation
+    if (onAssignDoctor) {
+      onAssignDoctor(patientId, doctorId);
+      return;
+    }
+
     try {
       const patientToAssign = patients.find(p => p.id === patientId);
       const doctor = doctors.find(d => d.id === doctorId);
+      
+      if (!patientToAssign || !doctor) {
+        throw new Error('Patient or doctor not found');
+      }
       
       // Update local state immediately for better UX
       setPatients(prevPatients => prevPatients.filter(p => p.id !== patientId));
       
       if (isOnline) {
-        // In a real app, this would call your API
-        // await apiService.assignPatientToDoctor(patientId, doctorId);
+        // Call the API to assign patient to doctor
+        const result = await receptionistService.assignPatientToDoctor(patientId, doctorId);
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to assign patient to doctor');
+        }
         
         // Notify
-        if (patientToAssign && doctor) {
-          notificationService.notifyDoctorAssigned(patientToAssign.name, doctor.name);
-        }
+        notificationService.notifyDoctorAssigned(
+          patientToAssign.name || patientToAssign.patientName, 
+          doctor.name
+        );
       } else {
         // If offline, store in IndexedDB
-        if (patientToAssign && doctor) {
-          await indexedDBService.addPendingAction('assign', { patientId, doctorId });
-          notificationService.notifyOfflineAction(`Assigning ${patientToAssign.name} to ${doctor.name}`);
-        }
+        await indexedDBService.addPendingAction('assign', { patientId, doctorId });
+        notificationService.notifyOfflineAction(
+          `Assigning ${patientToAssign.name || patientToAssign.patientName} to ${doctor.name}`
+        );
       }
       
       toast({
         title: 'Patient Assigned',
-        description: `Patient has been assigned to ${doctor?.name || 'doctor'}.`,
+        description: `${patientToAssign.name || patientToAssign.patientName} has been assigned to ${doctor.name}.`,
       });
     } catch (error) {
       console.error('Error assigning doctor:', error);
+      
+      // Revert the local state change on error
+      setPatients(prevPatients => [...prevPatients, initialPatients.find(p => p.id === patientId)!]);
+      
       toast({
         title: 'Error',
         description: 'Failed to assign doctor. Please try again.',

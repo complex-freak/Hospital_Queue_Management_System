@@ -11,7 +11,8 @@ import {
   GripVertical,
   ArrowUp,
   ArrowDown,
-  MoreVertical
+  MoreVertical,
+  UserCheck
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
@@ -244,20 +245,41 @@ const DraggableQueueItem: React.FC<DraggableQueueItemProps> = ({
                 <UserX className="mr-2 h-4 w-4" />
                 Remove from Queue
               </DropdownMenuItem>
-              
-              <DropdownMenuSeparator />
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          {/* Assign Doctor Button */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="border-blue-300 text-blue-700 hover:bg-blue-50"
+              >
+                <UserCheck className="mr-1 h-3 w-3" />
+                Assign
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
               <DropdownMenuLabel>Assign to Doctor</DropdownMenuLabel>
-              {doctors.map(doctor => (
-                <DropdownMenuItem
-                  key={doctor.id}
-                  onClick={() => onAssignDoctor(patient.id, doctor.id)}
-                  disabled={!doctor.isAvailable}
-                  className={!doctor.isAvailable ? 'opacity-50' : ''}
-                >
-                  {doctor.name}
-                  {!doctor.isAvailable && ' (Unavailable)'}
+              <DropdownMenuSeparator />
+              {doctors.length === 0 ? (
+                <DropdownMenuItem disabled>
+                  No doctors available
                 </DropdownMenuItem>
-              ))}
+              ) : (
+                doctors.map(doctor => (
+                  <DropdownMenuItem
+                    key={doctor.id}
+                    onClick={() => onAssignDoctor(patient.id, doctor.id)}
+                    disabled={!doctor.isAvailable}
+                    className={!doctor.isAvailable ? 'opacity-50' : ''}
+                  >
+                    {doctor.name}
+                    {!doctor.isAvailable && ' (Unavailable)'}
+                  </DropdownMenuItem>
+                ))
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

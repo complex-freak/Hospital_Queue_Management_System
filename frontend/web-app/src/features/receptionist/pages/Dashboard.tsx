@@ -3,20 +3,44 @@ import { useAuth } from '@/hooks/use-auth-context';
 import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
-import { RefreshCw, UserPlus } from 'lucide-react';
+import { RefreshCw, UserPlus, MoreVertical, UserX, UserCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import QueueMonitor from '@/features/receptionist/components/QueueMonitor';
 import QueueStats from '@/features/receptionist/components/QueueStats';
 import AppHeader from '@/features/shared/components/AppHeader';
 import { queueService } from '@/services/api/queue-service';
 import { receptionistService } from '@/services/api/receptionist-service';
 
+// Type definitions
+interface Patient {
+  id: string;
+  name?: string;
+  patientName?: string;
+  status: string;
+  checkInTime?: string;
+  createdAt?: string;
+}
+
+interface Doctor {
+  id: string;
+  name: string;
+  isAvailable: boolean;
+}
+
 const ReceptionistDashboard = () => {
   const { user } = useAuth();
-  const [patients, setPatients] = useState([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [doctors, setDoctors] = useState([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [isLoadingDoctors, setIsLoadingDoctors] = useState(true);
   const [queueStats, setQueueStats] = useState(null);
 
@@ -27,7 +51,11 @@ const ReceptionistDashboard = () => {
       const response = await queueService.getQueue();
       
       if (response.success && response.data) {
-        setPatients(response.data);
+        // Filter out cancelled appointments
+        const activePatients = response.data.filter((patient: Patient) => 
+          patient.status !== 'cancelled' && patient.status !== 'completed'
+        );
+        setPatients(activePatients);
       } else {
         throw new Error(response.error || 'Failed to fetch queue');
       }
@@ -91,11 +119,11 @@ const ReceptionistDashboard = () => {
     fetchQueue();
     fetchDoctors();
     
-    // Poll the queue every 30 seconds
+    // Poll the queue every 3 minutes
     const interval = setInterval(() => {
       fetchQueue();
       fetchDoctors();
-    }, 30000);
+    }, 180000);
     
     return () => clearInterval(interval);
   }, [fetchQueue, fetchDoctors]);
@@ -104,6 +132,67 @@ const ReceptionistDashboard = () => {
     setIsRefreshing(true);
     await Promise.all([fetchQueue(), fetchDoctors()]);
     setIsRefreshing(false);
+  };
+
+  const handleRemovePatient = async (patientId: string) => {
+    try {
+      const patientToRemove = patients.find((p: Patient) => p.id === patientId);
+      
+      // Update local state immediately for better UX
+      setPatients((prevPatients: Patient[]) => prevPatients.filter((p: Patient) => p.id !== patientId));
+      
+      // Call the API to remove patient
+      const result = await receptionistService.removeFromQueue(patientId, 'Removed by staff');
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to remove patient');
+      }
+      
+      toast({
+        title: 'Patient Removed',
+        description: 'The patient has been removed from the queue.',
+      });
+    } catch (error) {
+      console.error('Error removing patient:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to remove patient. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleAssignDoctor = async (patientId: string, doctorId: string) => {
+    try {
+      const patientToAssign = patients.find((p: Patient) => p.id === patientId);
+      const doctor = doctors.find((d: Doctor) => d.id === doctorId);
+      
+      if (!patientToAssign || !doctor) {
+        throw new Error('Patient or doctor not found');
+      }
+      
+      // Update local state immediately for better UX
+      setPatients((prevPatients: Patient[]) => prevPatients.filter((p: Patient) => p.id !== patientId));
+      
+      // Call the API to assign patient to doctor
+      const result = await receptionistService.assignPatientToDoctor(patientId, doctorId);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to assign patient to doctor');
+      }
+      
+      toast({
+        title: 'Patient Assigned',
+        description: `${patientToAssign.name || patientToAssign.patientName} has been assigned to ${doctor.name}.`,
+      });
+    } catch (error) {
+      console.error('Error assigning doctor:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to assign doctor. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   return (
@@ -147,6 +236,8 @@ const ReceptionistDashboard = () => {
             patients={patients} 
             doctors={doctors}
             isLoading={isLoading || isLoadingDoctors}
+            onRemovePatient={handleRemovePatient}
+            onAssignDoctor={handleAssignDoctor}
           />
         </div>
       </main>

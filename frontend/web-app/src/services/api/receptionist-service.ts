@@ -1,6 +1,44 @@
 import api from './client';
 import { transformToBackendAppointment, transformToFrontendUser } from './data-transformers';
 
+// Backend API response types
+interface BackendUserResponse {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  phone_number?: string;
+  email?: string;
+  username?: string;
+  gender?: 'male' | 'female' | 'other';
+  date_of_birth?: string;
+  address?: string;
+  emergency_contact?: string;
+  emergency_contact_name?: string;
+  emergency_contact_relationship?: string;
+  role?: string;
+  user?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    username: string;
+  };
+  specialization?: string;
+  department?: string;
+  license_number?: string;
+  is_available?: boolean;
+  patient_count?: number;
+}
+
+interface ApiError {
+  response?: {
+    data?: {
+      detail?: string;
+    };
+  };
+  message?: string;
+}
+
 // Types
 export interface PatientRegistrationData {
   firstName: string;
@@ -38,7 +76,7 @@ export const receptionistService = {
       
       return {
         success: true,
-        data: Array.isArray(response.data) ? response.data.map((patient: any) => transformToFrontendUser(patient)) : [],
+        data: Array.isArray(response.data) ? response.data.map((patient: BackendUserResponse) => transformToFrontendUser(patient)) : [],
       };
     } catch (error) {
       console.error('Error fetching all patients:', error);
@@ -53,7 +91,7 @@ export const receptionistService = {
       
       return {
         success: true,
-        data: Array.isArray(response.data) ? response.data.map((doctor: any) => transformToFrontendUser(doctor)) : [],
+        data: Array.isArray(response.data) ? response.data.map((doctor: BackendUserResponse) => transformToFrontendUser(doctor)) : [],
       };
     } catch (error) {
       console.error('Error fetching doctors:', error);
@@ -121,13 +159,14 @@ export const receptionistService = {
           checkInTime: appointmentResponse.data.created_at,
         },
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Log detailed error information
       console.error('Error registering patient:', error);
-      console.error('Error response data:', error.response?.data);
+      const apiError = error as ApiError;
+      console.error('Error response data:', apiError.response?.data);
       return { 
         success: false, 
-        error: error.response?.data?.detail || 'Failed to register patient' 
+        error: apiError.response?.data?.detail || 'Failed to register patient' 
       };
     }
   },
@@ -150,7 +189,7 @@ export const receptionistService = {
             lastUpdated: response.data.last_updated,
           },
         };
-      } catch (backendError: any) {
+      } catch (backendError) {
         console.warn('Backend draft endpoint error:', backendError.message);
         
         // Fallback to localStorage if endpoint doesn't exist or fails
@@ -187,7 +226,7 @@ export const receptionistService = {
           };
         }
         throw new Error('Invalid response format');
-      } catch (backendError: any) {
+      } catch (backendError) {
         console.warn('Backend draft endpoint error:', backendError.message);
         
         // Fallback to localStorage
@@ -223,7 +262,7 @@ export const receptionistService = {
           updatedAt: response.data.updated_at
         },
       };
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error updating patient priority:', error);
       return { 
         success: false, 
@@ -248,7 +287,7 @@ export const receptionistService = {
           status: response.data.status || 'cancelled'
         },
       };
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error removing patient from queue:', error);
       return { 
         success: false, 
@@ -266,11 +305,35 @@ export const receptionistService = {
         success: true,
         data: response.data
       };
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching queue statistics:', error);
       return { 
         success: false, 
         error: error.response?.data?.detail || 'Failed to fetch queue statistics' 
+      };
+    }
+  },
+  
+  // Assign patient to doctor
+  assignPatientToDoctor: async (appointmentId: string, doctorId: string) => {
+    try {
+      const response = await api.patch(`/staff/appointments/${appointmentId}/assign`, { 
+        doctor_id: doctorId 
+      });
+      
+      return {
+        success: true,
+        data: { 
+          id: appointmentId, 
+          doctorId: doctorId,
+          assignedAt: response.data.assigned_at || new Date().toISOString()
+        },
+      };
+    } catch (error) {
+      console.error('Error assigning patient to doctor:', error);
+      return { 
+        success: false, 
+        error: error.response?.data?.detail || 'Failed to assign patient to doctor' 
       };
     }
   }
