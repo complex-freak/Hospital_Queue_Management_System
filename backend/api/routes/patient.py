@@ -277,13 +277,16 @@ async def get_queue_status(
 ):
     """Get current queue status for patient"""
     try:
+        logging.info(f"Getting queue status for patient: {current_patient.id}")
         queue_status = await QueueService.get_queue_status(db, current_patient.id)
+        logging.info(f"Queue status result: {queue_status}")
         return queue_status
         
     except Exception as e:
+        logging.error(f"Failed to get queue status for patient {current_patient.id}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get queue status"
+            detail=f"Failed to get queue status: {str(e)}"
         )
 
 
@@ -888,14 +891,14 @@ async def cancel_appointment(
             )
         
         # Check if appointment can be cancelled
-        if appointment.status in ["COMPLETED", "CANCELLED", "NO_SHOW"]:
+        if appointment.status in [AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot cancel appointment with status: {appointment.status}"
             )
         
         # Update appointment status to CANCELLED
-        appointment.status = "CANCELLED"
+        appointment.status = AppointmentStatus.CANCELLED
         appointment.updated_at = datetime.now()
         
         await db.commit()

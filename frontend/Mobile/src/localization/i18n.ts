@@ -131,6 +131,13 @@ const resources = {
             success: 'Success',
             loading: 'Loading...',
             press: 'Press',
+
+            // Notifications
+            appointmentCreatedTitle: 'Appointment Created',
+            appointmentCreatedMessage: 'Your appointment has been successfully created. You will be notified when it\'s your turn.',
+            appointmentCreatedOfflineTitle: 'Appointment Saved',
+            appointmentCreatedOfflineMessage: 'Your appointment has been saved offline and will be synced when you\'re back online.',
+            notificationPermissionRequired: 'Notification permission is required to receive updates about your appointment.',
         },
     },
     sw: {
@@ -261,6 +268,13 @@ const resources = {
             success: 'Imefanikiwa',
             loading: 'Inapakia...',
             press: 'Bonyeza',
+
+            // Notifications
+            appointmentCreatedTitle: 'Miadi Imesajiliwa',
+            appointmentCreatedMessage: 'Miadi yako imesajiliwa kwa mafanikio. Utaarifiwa wakati itakapokuwa zamu yako.',
+            appointmentCreatedOfflineTitle: 'Miadi Imesalwa',
+            appointmentCreatedOfflineMessage: 'Miadi yako imesalwa kwa kiwango cha kawaida na itakuwa imesaliwa wakati uko mtandaoni.',
+            notificationPermissionRequired: 'Ruhusa ya arifa inahitajika kupata arifa kuhusu miadi yako.',
         },
     },
 };

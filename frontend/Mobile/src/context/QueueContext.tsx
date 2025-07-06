@@ -1,9 +1,13 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Appointment, ConditionType, Gender, QueueState } from '../types';
+import { useTranslation } from 'react-i18next';
+
 import { useAuth } from './AuthContext';
+import { appointmentService } from '../services/api/appointments';
+import { makeAuthenticatedRequest } from '../hooks/useAuthenticatedAPI';
+import { Appointment, Gender, ConditionType } from '../types';
+import pushNotificationService from '../services/notifications/pushNotificationService';
 import { format, addDays } from 'date-fns';
-import { appointmentService } from '../services';
 import { AUTH_CONFIG } from '../config/env';
 
 // Initial state
@@ -95,6 +99,7 @@ const QueueContext = createContext<QueueContextType | undefined>(undefined);
 export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [state, dispatch] = useReducer(queueReducer, initialState);
     const { state: authState } = useAuth();
+    const { t } = useTranslation();
 
     // Load appointment data from AsyncStorage on app start
     useEffect(() => {
@@ -178,6 +183,27 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
                 // Transform the API response to frontend format
                 const appointment = appointmentService.transformAppointmentData(response.data);
+
+                // Send push notification for successful appointment creation
+                try {
+                    if (response.message?.includes('offline')) {
+                        // Offline appointment created
+                        await pushNotificationService.sendImmediateNotification(
+                            t('appointmentCreatedOfflineTitle'),
+                            t('appointmentCreatedOfflineMessage'),
+                            { appointmentId: appointment.id }
+                        );
+                    } else {
+                        // Online appointment created
+                        await pushNotificationService.sendImmediateNotification(
+                            t('appointmentCreatedTitle'),
+                            t('appointmentCreatedMessage'),
+                            { appointmentId: appointment.id }
+                        );
+                    }
+                } catch (notificationError) {
+                    console.warn('Failed to send push notification:', notificationError);
+                }
 
                 // For immediate appointments, save to active appointment in AsyncStorage
                 if (addToQueue) {

@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta
 
 from database import get_db
-from models import Patient, User, Doctor, Appointment, Queue, QueueStatus, UrgencyLevel
+from models import Patient, User, Doctor, Appointment, Queue, QueueStatus, UrgencyLevel, AppointmentStatus
 from schemas import (
     Queue as QueueSchema, 
     Patient as PatientSchema,
@@ -462,7 +462,7 @@ async def mark_patient_served(
         await QueueService.update_queue_status(db, queue_id, QueueStatus.COMPLETED)
         
         # Update appointment status
-        appointment.status = "completed"
+        appointment.status = AppointmentStatus.COMPLETED
         # Note: appointment.completed_at field doesn't exist, so we'll use updated_at
         appointment.updated_at = datetime.utcnow()
         if notes:

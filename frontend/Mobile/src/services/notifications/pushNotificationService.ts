@@ -5,7 +5,14 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { STORAGE_KEYS } from '../../config/env';
-import { notificationService } from '../api/notifications';
+// Import notification service with error handling
+let notificationService: any = null;
+try {
+  const notificationsModule = require('../api/notifications');
+  notificationService = notificationsModule.notificationService || notificationsModule.default;
+} catch (error) {
+  console.warn('Could not import notification service:', error);
+}
 
 // Set up notification handler
 Notifications.setNotificationHandler({
@@ -20,7 +27,8 @@ Notifications.setNotificationHandler({
 
 class PushNotificationService {
   /**
-   * Register for push notifications
+   * Register for push notifications (permissions and token only)
+   * Note: Device token registration with backend happens after user authentication
    */
   async registerForPushNotifications(): Promise<string | null> {
     // Check if this is a physical device (push notifications don't work on simulators)
@@ -52,9 +60,7 @@ class PushNotificationService {
       // Save token to local storage
       if (token) {
         await AsyncStorage.setItem(STORAGE_KEYS.PUSH_NOTIFICATION_TOKEN, token);
-        
-        // Register token with backend
-        await this.registerTokenWithBackend(token);
+        console.log('Push notification token saved to local storage');
       }
       
       return token;
@@ -102,29 +108,35 @@ class PushNotificationService {
   }
   
   /**
-   * Register the token with our backend
+   * Register device token with backend (call this when user is authenticated)
    */
-  async registerTokenWithBackend(token: string): Promise<boolean> {
+  async registerTokenWithBackend(): Promise<boolean> {
     try {
-      // Convert the platform OS to the expected backend format - exactly matching the backend validation pattern
+      // Get the stored token
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.PUSH_NOTIFICATION_TOKEN);
+      if (!token) {
+        console.warn('No push notification token found in storage');
+        return false;
+      }
+
+      // Check if notification service is available
+      if (!notificationService) {
+        console.warn('Notification service not available, skipping backend registration');
+        return false;
+      }
+
+      // Convert the platform OS to the expected backend format
       let deviceType: string;
       
-      // Backend has a strict pattern validation for device_type: ios, android, web
       if (Platform.OS === 'ios') {
         deviceType = 'ios';
       } else if (Platform.OS === 'android') {
         deviceType = 'android';
       } else {
-        deviceType = 'web'; // Default for any other platform
+        deviceType = 'web';
       }
       
-      // Log the exact payload we're sending
-      const payload = {
-        token,
-        device_type: deviceType
-      };
-      
-      console.log('Sending device token to backend:', payload);
+      console.log('Registering device token with backend:', { token, device_type: deviceType });
       
       // Register the token with backend
       const response = await notificationService.registerDeviceToken({
@@ -187,6 +199,17 @@ class PushNotificationService {
       console.error('Error scheduling local notification:', error);
       return '';
     }
+  }
+
+  /**
+   * Send an immediate local notification
+   */
+  async sendImmediateNotification(
+    title: string,
+    body: string,
+    data: any = {}
+  ): Promise<string> {
+    return this.scheduleLocalNotification(title, body, data, null);
   }
   
   /**

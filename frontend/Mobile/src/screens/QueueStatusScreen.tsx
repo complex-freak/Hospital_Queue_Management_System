@@ -29,6 +29,7 @@ const QueueStatusScreen = () => {
     const [queueData, setQueueData] = useState({
         queueNumber: 0,
         currentPosition: 0,
+        totalInQueue: 0,
         doctorName: '',
         estimatedTime: 0,
         department: t('generalPractice'),
@@ -64,31 +65,32 @@ const QueueStatusScreen = () => {
             
             // Make authenticated API calls
             await makeAuthenticatedRequest(async () => {
-                // Get queue status for this appointment
-                const queueStatusResponse = await appointmentService.getQueueStatus(appointmentId);
+                // Get appointment details with queue status included
+                const appointmentResponse = await appointmentService.getAppointmentById(appointmentId);
                 
-                if (queueStatusResponse.isSuccess && queueStatusResponse.data) {
-                    const queueStatus = queueStatusResponse.data;
+                if (appointmentResponse.isSuccess && appointmentResponse.data) {
+                    const appointment = appointmentService.transformAppointmentData(
+                        appointmentResponse.data
+                    );
                     
-                    // Get appointment details to get doctor info
-                    const appointmentResponse = await appointmentService.getAppointmentById(appointmentId);
+                    // Get general queue status for the patient
+                    const queueStatusResponse = await appointmentService.getQueueStatus();
                     
-                    if (appointmentResponse.isSuccess && appointmentResponse.data) {
-                        const appointment = appointmentService.transformAppointmentData(
-                            appointmentResponse.data,
-                            queueStatusResponse.data
-                        );
-                        
-                        setQueueData({
-                            queueNumber: queueStatus.your_number || queueState.appointment?.queueNumber || 0,
-                            currentPosition: queueStatus.queue_position || queueState.appointment?.currentPosition || 0,
-                            doctorName: appointment.doctorName || t('awaitingDoctor'),
-                            estimatedTime: queueStatus.estimated_wait_time || queueState.appointment?.estimatedTime || 0,
-                            department: t('generalPractice'),
-                            appointmentTime: appointment.createdAt ? new Date(appointment.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '',
-                            status: getStatusText(queueStatus.status || appointment.status)
-                        });
+                    let queueStatus = null;
+                    if (queueStatusResponse.isSuccess && queueStatusResponse.data) {
+                        queueStatus = queueStatusResponse.data;
                     }
+                    
+                    setQueueData({
+                        queueNumber: appointment.queue_number || 0,
+                        currentPosition: appointment.currentPosition || 0,
+                        totalInQueue: queueStatus?.total_in_queue || 0,
+                        doctorName: appointment.doctorName || t('awaitingDoctor'),
+                        estimatedTime: appointment.estimatedTime || 0,
+                        department: t('generalPractice'),
+                        appointmentTime: appointment.createdAt ? new Date(appointment.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '',
+                        status: getStatusText(appointment.status)
+                    });
                 }
             }, () => {
                 // Handle auth error
@@ -240,15 +242,42 @@ const QueueStatusScreen = () => {
                                     style={[
                                         styles.progressFill,
                                         {
-                                            width: `${(queueData.currentPosition <= 5
-                                                ? (5 - queueData.currentPosition) / 5 * 100
+                                            width: `${(queueData.totalInQueue > 0
+                                                ? Math.max(0, (queueData.totalInQueue - queueData.currentPosition) / queueData.totalInQueue * 100)
                                                 : 0)}%`
                                         }
                                     ]}
                                 />
                             </View>
+                            <Text style={styles.progressLabel}>
+                                {queueData.currentPosition > 0 
+                                    ? `${queueData.currentPosition} of ${queueData.totalInQueue} in queue`
+                                    : t('noQueueData')
+                                }
+                            </Text>
                         </View>
                     </View>
+
+                    {/* Queue Information Card */}
+                    {queueData.totalInQueue > 0 && (
+                        <View style={styles.card}>
+                            <View style={styles.cardHeader}>
+                                <Ionicons name="people-outline" size={22} color={COLORS.primary} />
+                                <Text style={styles.cardTitle}>{t('queueInformation')}</Text>
+                            </View>
+
+                            <View style={styles.queueInfoContainer}>
+                                <View style={styles.queueInfoItem}>
+                                    <Text style={styles.queueInfoLabel}>{t('totalInQueue')}</Text>
+                                    <Text style={styles.queueInfoValue}>{queueData.totalInQueue}</Text>
+                                </View>
+                                <View style={styles.queueInfoItem}>
+                                    <Text style={styles.queueInfoLabel}>{t('yourPosition')}</Text>
+                                    <Text style={styles.queueInfoValue}>{queueData.currentPosition}</Text>
+                                </View>
+                            </View>
+                        </View>
+                    )}
 
                     {/* Doctor Info Card */}
                     <View style={styles.card}>
@@ -431,6 +460,12 @@ const styles = StyleSheet.create({
         height: '100%',
         backgroundColor: COLORS.primary,
     },
+    progressLabel: {
+        ...FONTS.body5,
+        color: COLORS.gray,
+        marginTop: 4,
+        textAlign: 'center',
+    },
     doctorName: {
         ...FONTS.h3,
         color: COLORS.black,
@@ -501,6 +536,24 @@ const styles = StyleSheet.create({
         ...FONTS.h3,
         color: COLORS.gray,
         marginBottom: SIZES.padding,
+    },
+    queueInfoContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: SIZES.base,
+    },
+    queueInfoItem: {
+        alignItems: 'center',
+    },
+    queueInfoLabel: {
+        ...FONTS.body5,
+        color: COLORS.gray,
+        marginBottom: 4,
+    },
+    queueInfoValue: {
+        ...FONTS.h2,
+        color: COLORS.primary,
+        fontWeight: 'bold',
     },
 });
 

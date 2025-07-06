@@ -4,7 +4,7 @@ from sqlalchemy import select, and_, func, insert
 from uuid import UUID
 from datetime import datetime, date
 
-from models import Appointment, Patient, Doctor, UrgencyLevel
+from models import Appointment, Patient, Doctor, UrgencyLevel, AppointmentStatus
 from schemas import AppointmentCreate, AppointmentUpdate
 
 
@@ -40,7 +40,7 @@ class AppointmentService:
                 and_(
                     Appointment.patient_id == appointment_data.patient_id,
                     func.date(Appointment.created_at) == today,
-                    Appointment.status.in_(["scheduled", "in_progress"])
+                    Appointment.status.in_([AppointmentStatus.SCHEDULED, AppointmentStatus.IN_PROGRESS])
                 )
             )
         )
@@ -58,7 +58,7 @@ class AppointmentService:
             "reason": appointment_data.reason,
             "notes": getattr(appointment_data, "notes", None),
             "created_by": created_by_user_id,
-            "status": "scheduled"
+            "status": AppointmentStatus.SCHEDULED
         }
         
         result = await db.execute(insert(Appointment).values(**appointment_values).returning(Appointment))
@@ -185,10 +185,10 @@ class AppointmentService:
         if not appointment:
             raise ValueError("Appointment not found")
         
-        if appointment.status in ["completed", "cancelled"]:
+        if appointment.status in [AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED]:
             raise ValueError(f"Cannot cancel appointment with status: {appointment.status}")
         
-        appointment.status = "cancelled"
+        appointment.status = AppointmentStatus.CANCELLED
         appointment.notes = f"{appointment.notes or ''}\nCancelled: {reason or 'No reason provided'}"
         appointment.updated_at = datetime.utcnow()
         
@@ -208,10 +208,10 @@ class AppointmentService:
         if not appointment:
             raise ValueError("Appointment not found")
         
-        if appointment.status in ["completed", "cancelled"]:
+        if appointment.status in [AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED]:
             raise ValueError(f"Cannot complete appointment with status: {appointment.status}")
         
-        appointment.status = "completed"
+        appointment.status = AppointmentStatus.COMPLETED
         if notes:
             appointment.notes = f"{appointment.notes or ''}\nCompleted: {notes}"
         appointment.updated_at = datetime.utcnow()

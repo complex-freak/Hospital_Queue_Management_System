@@ -4,6 +4,7 @@ import { DeviceEventEmitter } from 'react-native';
 import { User, AuthState } from '../types';
 import { authService } from '../services';
 import { STORAGE_KEYS, AUTH_CONFIG } from '../config/env';
+import pushNotificationService from '../services/notifications/pushNotificationService';
 
 // Initial state
 const initialState: AuthState = {
@@ -123,6 +124,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 if (userData && token) {
                     const user = JSON.parse(userData);
                     dispatch({ type: 'LOGIN_SUCCESS', payload: user });
+                    
+                    // Register device token with backend for already logged in user
+                    try {
+                        await pushNotificationService.registerTokenWithBackend();
+                    } catch (error) {
+                        console.warn('Failed to register device token for existing user:', error);
+                    }
                 } else {
                     dispatch({ type: 'LOGOUT' });
                 }
@@ -186,6 +194,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     // Save to AsyncStorage
                     await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(user));
 
+                    // Register device token with backend after successful login
+                    try {
+                        await pushNotificationService.registerTokenWithBackend();
+                    } catch (error) {
+                        console.warn('Failed to register device token after login:', error);
+                    }
+
                     dispatch({ type: 'LOGIN_SUCCESS', payload: user });
                 } else {
                     throw new Error('Failed to retrieve user profile');
@@ -240,6 +255,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                         // Save to AsyncStorage
                         await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(user));
+
+                        // Register device token with backend after successful registration
+                        try {
+                            await pushNotificationService.registerTokenWithBackend();
+                        } catch (error) {
+                            console.warn('Failed to register device token after registration:', error);
+                        }
 
                         dispatch({ type: 'REGISTER_SUCCESS', payload: user });
                     } else {

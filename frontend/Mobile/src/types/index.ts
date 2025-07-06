@@ -20,19 +20,78 @@ export type Gender = 'male' | 'female' | 'other';
 
 export interface Appointment {
     id: string;
-    patientName: string;
-    gender: Gender;
-    dateOfBirth: string;
-    phoneNumber: string;
-    conditionType: ConditionType;
-    queueNumber: number;
-    currentPosition: number;
-    estimatedTime: number;
+    patient_id: string;
+    doctor_id?: string;
+    appointment_date: string;
+    reason?: string;
+    urgency: 'low' | 'normal' | 'high' | 'emergency';
+    status: 'scheduled' | 'waiting' | 'in_progress' | 'completed' | 'cancelled' | 'no_show';
+    notes?: string;
+    created_at?: string;
+    updated_at?: string;
+    
+    // Queue information (added dynamically by backend)
+    queue_position?: number;
+    estimated_wait_time?: number;
+    queue_number?: number;
+    
+    // Relationships (loaded by backend)
+    patient?: {
+        id: string;
+        first_name: string;
+        last_name: string;
+        phone_number: string;
+        email?: string;
+        date_of_birth?: string;
+        gender?: string;
+        address?: string;
+        emergency_contact?: string;
+        emergency_contact_name?: string;
+        emergency_contact_relationship?: string;
+        is_active: boolean;
+        created_at?: string;
+        updated_at?: string;
+    };
+    
+    doctor?: {
+        id: string;
+        user_id: string;
+        specialization?: string;
+        license_number?: string;
+        department?: string;
+        consultation_fee?: number;
+        is_available: boolean;
+        shift_start?: string;
+        shift_end?: string;
+        bio?: string;
+        education?: string;
+        experience?: string;
+        user?: {
+            id: string;
+            username: string;
+            email?: string;
+            first_name: string;
+            last_name: string;
+            role: string;
+            is_active: boolean;
+            created_at?: string;
+            updated_at?: string;
+        };
+    };
+    
+    // Legacy fields for backward compatibility
+    patientName?: string;
+    gender?: Gender;
+    dateOfBirth?: string;
+    phoneNumber?: string;
+    conditionType?: ConditionType;
+    currentPosition?: number;
+    estimatedTime?: number;
     doctorName?: string;
-    status: 'scheduled' | 'waiting' | 'ongoing' | 'completed' | 'cancelled';
-    createdAt: string;
+    createdAt?: string;
     reasonForVisit?: string;
     additionalInformation?: string;
+    
     // Properties for offline sync
     _isOfflineCreated?: boolean;
     _locallyModified?: boolean;
@@ -40,7 +99,6 @@ export interface Appointment {
     _patientId?: string;
     _version?: number;
     _lastSynced?: number;
-    appointmentDate?: string;
 }
 
 export interface Notification {

@@ -251,16 +251,25 @@ class QueueService:
         patient_id: UUID
     ) -> Optional[Queue]:
         """Get current queue status for a patient"""
-        result = await db.execute(
-            select(Queue).where(
-                and_(
-                    column("patient_id") == patient_id,
-                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING]),
-                    func.date(column("created_at")) == date.today()
+        try:
+            logger.info(f"Getting patient queue status for patient: {patient_id}")
+            result = await db.execute(
+                select(Queue).where(
+                    and_(
+                        column("patient_id") == patient_id,
+                        Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING]),
+                        func.date(column("created_at")) == date.today()
+                    )
                 )
             )
-        )
-        return result.scalar_one_or_none()
+            queue_entry = result.scalars().first()
+            logger.info(f"Patient queue entry found: {queue_entry is not None}")
+            if queue_entry:
+                logger.info(f"Queue entry details: id={queue_entry.id}, status={queue_entry.status}")
+            return queue_entry
+        except Exception as e:
+            logger.error(f"Error in get_patient_queue_status for patient {patient_id}: {str(e)}", exc_info=True)
+            raise
     
     @staticmethod
     async def get_queue_status(
@@ -268,57 +277,76 @@ class QueueService:
         patient_id: UUID
     ) -> Optional[Dict[str, Any]]:
         """Get current queue status for a patient and return in QueueStatusResponse format"""
-        queue_entry = await QueueService.get_patient_queue_status(db, patient_id)
-        
-        if not queue_entry:
-            return None
+        try:
+            logger.info(f"Getting queue status for patient: {patient_id}")
             
-        # Get position in queue
-        result = await db.execute(
-            select(func.count(Queue.id)).where(
-                and_(
-                    Queue.status == QueueStatus.WAITING,
-                    Queue.priority_score > queue_entry.priority_score,
-                    func.date(Queue.created_at) == func.date(queue_entry.created_at)
+            queue_entry = await QueueService.get_patient_queue_status(db, patient_id)
+            logger.info(f"Queue entry found: {queue_entry is not None}")
+            
+            if not queue_entry:
+                logger.info(f"No queue entry found for patient: {patient_id}")
+                return None
+                
+            logger.info(f"Queue entry details: id={queue_entry.id}, status={queue_entry.status}, queue_number={queue_entry.queue_number}")
+            
+            # Get position in queue
+            logger.info("Calculating queue position...")
+            result = await db.execute(
+                select(func.count(Queue.id)).where(
+                    and_(
+                        Queue.status == QueueStatus.WAITING,
+                        Queue.priority_score > queue_entry.priority_score,
+                        func.date(Queue.created_at) == func.date(queue_entry.created_at)
+                    )
                 )
             )
-        )
-        queue_position = result.scalar() or 0
-        queue_position += 1  # Add one for current position
-        
-        # Get total in queue
-        result = await db.execute(
-            select(func.count(Queue.id)).where(
-                and_(
-                    Queue.status == QueueStatus.WAITING,
-                    func.date(Queue.created_at) == func.date(queue_entry.created_at)
+            queue_position = result.scalar() or 0
+            queue_position += 1  # Add one for current position
+            logger.info(f"Queue position calculated: {queue_position}")
+            
+            # Get total in queue
+            logger.info("Calculating total in queue...")
+            result = await db.execute(
+                select(func.count(Queue.id)).where(
+                    and_(
+                        Queue.status == QueueStatus.WAITING,
+                        func.date(Queue.created_at) == func.date(queue_entry.created_at)
+                    )
                 )
             )
-        )
-        total_in_queue = result.scalar() or 0
-        
-        # Get current serving number
-        result = await db.execute(
-            select(Queue.queue_number).where(
-                and_(
-                    Queue.status == QueueStatus.SERVING,
-                    func.date(Queue.created_at) == func.date(queue_entry.created_at)
-                )
-            ).order_by(Queue.served_at.desc()).limit(1)
-        )
-        current_serving = result.scalar()
-        
-        # Format as QueueStatusResponse
-        return {
-            "queue_id": queue_entry.id,
-            "queue_position": queue_position,
-            "your_number": queue_entry.queue_number,
-            "estimated_wait_time": queue_entry.estimated_wait_time,
-            "status": queue_entry.status,
-            "appointment_id": queue_entry.appointment_id,
-            "total_in_queue": total_in_queue,
-            "current_serving": current_serving
-        }
+            total_in_queue = result.scalar() or 0
+            logger.info(f"Total in queue: {total_in_queue}")
+            
+            # Get current serving number
+            logger.info("Getting current serving number...")
+            result = await db.execute(
+                select(Queue.queue_number).where(
+                    and_(
+                        Queue.status == QueueStatus.SERVING,
+                        func.date(Queue.created_at) == func.date(queue_entry.created_at)
+                    )
+                ).order_by(Queue.served_at.desc()).limit(1)
+            )
+            current_serving = result.scalar()
+            logger.info(f"Current serving: {current_serving}")
+            
+            # Format as QueueStatusResponse
+            response = {
+                "queue_id": queue_entry.id,
+                "queue_position": queue_position,
+                "your_number": queue_entry.queue_number,
+                "estimated_wait_time": queue_entry.estimated_wait_time,
+                "status": queue_entry.status,
+                "appointment_id": queue_entry.appointment_id,
+                "total_in_queue": total_in_queue,
+                "current_serving": current_serving
+            }
+            logger.info(f"Queue status response: {response}")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error in get_queue_status for patient {patient_id}: {str(e)}", exc_info=True)
+            raise
     
     @staticmethod
     async def get_doctor_queue(

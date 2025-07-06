@@ -259,7 +259,7 @@ const AppointmentDetailsScreen: React.FC = () => {
                                 <View style={styles.detailRow}>
                                     <Text style={styles.detailLabel}>{t('date')}:</Text>
                                     <Text style={styles.detailValue}>
-                                        {formatAppointmentDate(appointment.createdAt)}
+                                        {appointment.createdAt ? formatAppointmentDate(appointment.createdAt) : t('notAvailable')}
                                     </Text>
                                 </View>
 
@@ -268,12 +268,12 @@ const AppointmentDetailsScreen: React.FC = () => {
                                     <Text style={styles.detailValue}>{appointment.patientName}</Text>
                                 </View>
 
-                                {appointment.doctorName && (
+                                {/* {appointment.doctorName && (
                                     <View style={styles.detailRow}>
                                         <Text style={styles.detailLabel}>{t('doctor')}:</Text>
                                         <Text style={styles.detailValue}>{appointment.doctorName}</Text>
                                     </View>
-                                )}
+                                )} */}
 
                                 <View style={styles.detailRow}>
                                     <Text style={styles.detailLabel}>{t('urgency')}:</Text>
@@ -303,7 +303,7 @@ const AppointmentDetailsScreen: React.FC = () => {
                                     <View style={styles.queueInfo}>
                                         <View style={styles.queueItem}>
                                             <Text style={styles.queueLabel}>{t('queueNumber')}</Text>
-                                            <Text style={styles.queueValue}>{appointment.queueNumber}</Text>
+                                            <Text style={styles.queueValue}>{appointment.queue_number}</Text>
                                         </View>
                                         <View style={styles.queueItem}>
                                             <Text style={styles.queueLabel}>{t('position')}</Text>

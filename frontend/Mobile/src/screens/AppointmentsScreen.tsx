@@ -160,7 +160,7 @@ const AppointmentsScreen: React.FC = () => {
         switch(filter) {
             case 'upcoming':
                 return appointments.filter(appointment => 
-                    appointment.status === 'waiting' || appointment.status === 'ongoing'
+                    appointment.status === 'waiting' || appointment.status === 'in_progress' || appointment.status === 'scheduled'
                 );
             case 'completed':
                 return appointments.filter(appointment => appointment.status === 'completed');
@@ -176,8 +176,10 @@ const AppointmentsScreen: React.FC = () => {
         switch(status) {
             case 'waiting':
                 return COLORS.warning;
-            case 'ongoing':
+            case 'in_progress':
                 return COLORS.info;
+            case 'scheduled':
+                return COLORS.primary;
             case 'completed':
                 return COLORS.success;
             case 'cancelled':
@@ -192,8 +194,10 @@ const AppointmentsScreen: React.FC = () => {
         switch(status) {
             case 'waiting':
                 return t('waiting');
-            case 'ongoing':
+            case 'in_progress':
                 return t('ongoing');
+            case 'scheduled':
+                return t('scheduled');
             case 'completed':
                 return t('completed');
             case 'cancelled':
@@ -210,7 +214,7 @@ const AppointmentsScreen: React.FC = () => {
 
     // Render appointment card
     const renderAppointmentCard = ({ item }: { item: Appointment }) => {
-        const canCancel = item.status === 'waiting';
+        const canCancel = item.status === 'waiting' || item.status === 'scheduled';
         
         return (
             <TouchableOpacity 
@@ -221,7 +225,7 @@ const AppointmentsScreen: React.FC = () => {
                     <View style={styles.dateContainer}>
                         <Ionicons name="calendar" size={16} color={COLORS.primary} />
                         <Text style={styles.appointmentDate}>
-                            {formatAppointmentDate(item.dateOfBirth)}
+                            {formatAppointmentDate(item.appointment_date || item.created_at || '')}
                         </Text>
                     </View>
                     <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
@@ -232,29 +236,29 @@ const AppointmentsScreen: React.FC = () => {
                 </View>
 
                 <Text style={styles.appointmentTitle}>
-                    {item.doctorName ? t('appointmentWithDr', { doctor: item.doctorName }) : t('hospitalAppointment')}
+                    {item.doctor?.user ? t('appointmentWithDr', { doctor: `${item.doctor.user.first_name} ${item.doctor.user.last_name}` }) : t('hospitalAppointment')}
                 </Text>
 
-                {item.conditionType && (
+                {item.reason && (
                     <View style={styles.detailRow}>
                         <Text style={styles.detailLabel}>{t('reason')}:</Text>
-                        <Text style={styles.detailValue}>{item.conditionType}</Text>
+                        <Text style={styles.detailValue}>{item.reason}</Text>
                     </View>
                 )}
 
-                {item.status === 'waiting' && (
+                {item.status === 'waiting' && item.queue_number && (
                     <View style={styles.queueInfo}>
                         <View style={styles.queueItem}>
                             <Text style={styles.queueLabel}>{t('queueNumber')}</Text>
-                            <Text style={styles.queueValue}>{item.queueNumber}</Text>
+                            <Text style={styles.queueValue}>{item.queue_number}</Text>
                         </View>
                         <View style={styles.queueItem}>
                             <Text style={styles.queueLabel}>{t('position')}</Text>
-                            <Text style={styles.queueValue}>{item.currentPosition}</Text>
+                            <Text style={styles.queueValue}>{item.queue_position || 'N/A'}</Text>
                         </View>
                         <View style={styles.queueItem}>
                             <Text style={styles.queueLabel}>{t('estimatedWait')}</Text>
-                            <Text style={styles.queueValue}>{item.estimatedTime} {t('mins')}</Text>
+                            <Text style={styles.queueValue}>{item.estimated_wait_time || 0} {t('mins')}</Text>
                         </View>
                     </View>
                 )}

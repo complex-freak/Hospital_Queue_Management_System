@@ -100,9 +100,12 @@ class AppointmentService {
         // Create a placeholder appointment for the UI
         const placeholderAppointment: Appointment = {
           id: tempId,
+          patient_id: 'placeholder',
+          appointment_date: data.appointment_date || new Date().toISOString(),
+          urgency: data.urgency as 'low' | 'normal' | 'high' | 'emergency',
+          status: 'waiting',
           patientName: 'You', // Will be replaced with actual data when online
           conditionType: this.mapUrgencyToConditionType(data.urgency),
-          status: 'waiting',
           createdAt: new Date().toISOString(),
           reasonForVisit: data.reason,
           additionalInformation: data.notes,
@@ -112,7 +115,7 @@ class AppointmentService {
           gender: 'other',
           dateOfBirth: '',
           phoneNumber: '',
-          queueNumber: 0,
+          queue_number: 0,
           currentPosition: 0,
           estimatedTime: 0
         };
@@ -156,11 +159,11 @@ class AppointmentService {
   }
 
   /**
-   * Get queue status for an appointment - requires online connection
+   * Get queue status for the current patient - requires online connection
    */
-  public async getQueueStatus(appointmentId: string): Promise<ApiResponse<QueueStatusResponse>> {
+  public async getQueueStatus(): Promise<ApiResponse<QueueStatusResponse>> {
     // This needs online connection, no offline support
-    return httpClient.get<QueueStatusResponse>(`${API_PATHS.APPOINTMENTS.QUEUE_STATUS}?appointment_id=${appointmentId}`);
+    return httpClient.get<QueueStatusResponse>(API_PATHS.APPOINTMENTS.QUEUE_STATUS);
   }
 
   /**
@@ -516,6 +519,7 @@ class AppointmentService {
     const statusMap: { [key: string]: string } = {
       'scheduled': 'SCHEDULED',
       'waiting': 'WAITING',
+      'in_progress': 'IN_PROGRESS',
       'ongoing': 'IN_PROGRESS',
       'completed': 'COMPLETED',
       'cancelled': 'CANCELLED'
@@ -526,9 +530,9 @@ class AppointmentService {
       id: appointment.id,
       patient_id: appointment._patientId || 'placeholder',
       doctor_id: appointment.doctorName ? 'placeholder' : null,
-      appointment_date: appointment.appointmentDate || new Date().toISOString(),
+      appointment_date: appointment.appointment_date || new Date().toISOString(),
       reason: appointment.reasonForVisit || null,
-      urgency: urgencyMap[appointment.conditionType] || 'NORMAL',
+      urgency: urgencyMap[appointment.conditionType || 'normal'] || 'NORMAL',
       status: statusMap[appointment.status] || 'WAITING',
       notes: appointment.additionalInformation || null,
       created_at: appointment.createdAt || new Date().toISOString(),
@@ -568,19 +572,19 @@ class AppointmentService {
     };
 
     // Map status from backend to frontend format (case-insensitive)
-    const statusMap: { [key: string]: 'scheduled' | 'waiting' | 'ongoing' | 'completed' | 'cancelled' } = {
+    const statusMap: { [key: string]: 'scheduled' | 'waiting' | 'in_progress' | 'completed' | 'cancelled' | 'no_show' } = {
       'SCHEDULED': 'scheduled',
       'scheduled': 'scheduled',
       'WAITING': 'waiting',
       'waiting': 'waiting',
-      'IN_PROGRESS': 'ongoing',
-      'in_progress': 'ongoing',
+      'IN_PROGRESS': 'in_progress',
+      'in_progress': 'in_progress',
       'COMPLETED': 'completed',
       'completed': 'completed',
       'CANCELLED': 'cancelled',
       'cancelled': 'cancelled',
-      'NO_SHOW': 'cancelled',
-      'no_show': 'cancelled',
+      'NO_SHOW': 'no_show',
+      'no_show': 'no_show',
     };
 
     // Create doctorName if doctor info exists
@@ -591,16 +595,19 @@ class AppointmentService {
     // Transform to frontend format
     return {
       id: apiData.id,
+      patient_id: apiData.patient_id,
+      appointment_date: apiData.appointment_date,
+      urgency: apiData.urgency as 'low' | 'normal' | 'high' | 'emergency',
+      status: statusMap[apiData.status] || 'waiting',
       patientName: `${apiData.patient.first_name} ${apiData.patient.last_name}`,
       gender: (apiData.patient.gender as 'male' | 'female') || 'other',
       dateOfBirth: apiData.patient.date_of_birth || '',
       phoneNumber: apiData.patient.phone_number,
       conditionType: conditionTypeMap[apiData.urgency] || 'normal',
-      queueNumber: queueData?.your_number || 0,
+      queue_number: queueData?.your_number || 0,
       currentPosition: queueData?.queue_position || 0,
       estimatedTime: queueData?.estimated_wait_time || 0,
       doctorName,
-      status: statusMap[apiData.status] || 'waiting',
       createdAt: apiData.created_at,
       reasonForVisit: apiData.reason || undefined,
       additionalInformation: apiData.notes || undefined,
