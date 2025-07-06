@@ -752,7 +752,31 @@ async def create_appointment(
         }
         
         # Automatically assign a doctor with the least queue
-        doctor_id = await QueueService.get_doctor_with_least_queue(db)
+        # Create a temporary appointment object to pass to assign_available_doctor
+        temp_appointment = Appointment(
+            id=UUID(str(uuid.uuid4())),
+            patient_id=current_patient.id,
+            doctor_id=None,
+            appointment_date=appointment_data.appointment_date or datetime.utcnow(),
+            reason=appointment_data.reason or "General consultation",
+            urgency=urgency,
+            status=AppointmentStatus.SCHEDULED,
+            created_by=None
+        )
+        
+        # Extract department preference from appointment reason if available
+        preferred_department = None
+        if appointment_data.reason:
+            if "cardio" in appointment_data.reason.lower():
+                preferred_department = "Cardiology"
+            elif "ortho" in appointment_data.reason.lower():
+                preferred_department = "Orthopedics"
+            elif "pediatric" in appointment_data.reason.lower() or "child" in appointment_data.reason.lower():
+                preferred_department = "Pediatrics"
+            elif "emergency" in appointment_data.reason.lower() or "urgent" in appointment_data.reason.lower():
+                preferred_department = "Emergency"
+        
+        doctor_id = await QueueService.assign_available_doctor(db, temp_appointment, preferred_department)
         if doctor_id:
             appointment_obj["doctor_id"] = doctor_id
             
@@ -765,7 +789,9 @@ async def create_appointment(
             if doctor_data:
                 doctor, user = doctor_data
                 doctor_name = f"Dr. {user.first_name} {user.last_name}"
-                
+        else:
+            print("No available doctors found for automatic assignment")
+        
         # Insert the appointment
         result = await db.execute(insert(Appointment).values(**appointment_obj).returning(Appointment.id))
         appointment_id = result.scalar_one()

@@ -7,7 +7,7 @@ from datetime import datetime, date, timedelta, timezone
 import asyncio
 import logging
 
-from models import Queue, Appointment, Patient, Doctor, UrgencyLevel, QueueStatus
+from models import Queue, Appointment, Patient, Doctor, User, UrgencyLevel, QueueStatus
 from schemas import QueueCreate, QueueUpdate, QueueResponse
 from .notification_service import NotificationService
 from utils.datetime_utils import get_timezone_aware_now
@@ -58,30 +58,36 @@ class QueueService:
             next_queue_number = max_queue_number + 1
             print(f"Next queue number: {next_queue_number}")
             
-            # If doctor_id is not provided, find the doctor with the least queue
+            # If doctor_id is not provided, automatically assign an available doctor
             assigned_doctor_id = doctor_id or appointment.doctor_id
             if not assigned_doctor_id:
-                # Get the department from the appointment reason if available
-                department = None
+                # Extract department preference from appointment reason if available
+                preferred_department = None
                 if appointment.reason and len(appointment.reason) > 0:
                     # Simple logic to extract potential department from reason
                     # In a real app, you might have a more sophisticated classification
                     if "cardio" in appointment.reason.lower():
-                        department = "Cardiology"
+                        preferred_department = "Cardiology"
                     elif "ortho" in appointment.reason.lower():
-                        department = "Orthopedics"
+                        preferred_department = "Orthopedics"
+                    elif "pediatric" in appointment.reason.lower() or "child" in appointment.reason.lower():
+                        preferred_department = "Pediatrics"
+                    elif "emergency" in appointment.reason.lower() or "urgent" in appointment.reason.lower():
+                        preferred_department = "Emergency"
                     # Add more department mappings as needed
                 
-                # Find doctor with least queue
-                assigned_doctor_id = await QueueService.get_doctor_with_least_queue(db)
+                # Use the new robust doctor assignment method
+                assigned_doctor_id = await QueueService.assign_available_doctor(
+                    db, appointment, preferred_department
+                )
                 
                 if assigned_doctor_id:
                     # Update the appointment with the assigned doctor
                     appointment.doctor_id = assigned_doctor_id
                     await db.commit()
-                    print(f"Assigned doctor with ID: {assigned_doctor_id}")
+                    logger.info(f"Automatically assigned doctor with ID: {assigned_doctor_id} to appointment {appointment.id}")
                 else:
-                    print("No available doctors found")
+                    logger.warning("No available doctors found for appointment assignment")
             
             # Calculate priority score
             priority_score = await QueueService._calculate_priority_score(
@@ -637,6 +643,65 @@ class QueueService:
         doctor = result.scalar_one_or_none()
         
         return doctor  # May be None if no doctors available
+
+    @staticmethod
+    async def assign_available_doctor(
+        db: AsyncSession,
+        appointment: Appointment,
+        preferred_department: Optional[str] = None
+    ) -> Optional[UUID]:
+        """
+        Assign an available doctor to an appointment
+        Prioritizes doctors with the least queue, then considers department preferences
+        Returns the assigned doctor's ID or None if no doctors available
+        """
+        try:
+            # First, try to find a doctor with the least queue in the preferred department
+            if preferred_department:
+                result = await db.execute(
+                    select(
+                        Doctor.id,
+                        func.count(Queue.id).label("queue_count")
+                    )
+                    .join(User, Doctor.user_id == User.id)
+                    .outerjoin(
+                        Appointment, 
+                        and_(
+                            Doctor.id == Appointment.doctor_id,
+                            Appointment.id == Queue.appointment_id,
+                            Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED]),
+                            func.date(Queue.created_at) == func.current_date()
+                        )
+                    )
+                    .outerjoin(Queue, Appointment.id == Queue.appointment_id)
+                    .where(
+                        and_(
+                            Doctor.is_available == True,
+                            Doctor.department.ilike(f"%{preferred_department}%")
+                        )
+                    )
+                    .group_by(Doctor.id)
+                    .order_by(asc("queue_count"), asc(Doctor.id))
+                )
+                doctor_with_count = result.first()
+                
+                if doctor_with_count:
+                    logger.info(f"Assigned doctor {doctor_with_count[0]} from preferred department {preferred_department}")
+                    return doctor_with_count[0]
+            
+            # If no preferred department or no doctors in preferred department, 
+            # fall back to general assignment
+            return await QueueService.get_doctor_with_least_queue(db)
+            
+        except Exception as e:
+            logger.error(f"Error assigning available doctor: {str(e)}")
+            # Fallback to simple available doctor selection
+            result = await db.execute(
+                select(Doctor.id)
+                .where(Doctor.is_available == True)
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
     
     @staticmethod
     async def update_queue_positions(

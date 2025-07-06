@@ -80,6 +80,10 @@ async def create_appointment(
 ):
     """Create new appointment"""
     try:
+        # Store user information before any database operations to avoid MissingGreenlet errors
+        current_user_id = current_user.id
+        current_user_username = current_user.username
+        
         # Verify patient exists
         result = await db.execute(
             select(Patient).where(Patient.id == appointment_data.patient_id)
@@ -94,10 +98,48 @@ async def create_appointment(
         
         # If doctor not specified, automatically assign one with the least queue
         if not appointment_data.doctor_id:
-            doctor_id = await QueueService.get_doctor_with_least_queue(db)
+            # Extract department preference from appointment reason if available
+            preferred_department = None
+            if appointment_data.reason:
+                if "cardio" in appointment_data.reason.lower():
+                    preferred_department = "Cardiology"
+                elif "ortho" in appointment_data.reason.lower():
+                    preferred_department = "Orthopedics"
+                elif "pediatric" in appointment_data.reason.lower() or "child" in appointment_data.reason.lower():
+                    preferred_department = "Pediatrics"
+                elif "emergency" in appointment_data.reason.lower() or "urgent" in appointment_data.reason.lower():
+                    preferred_department = "Emergency"
+            
+            # Create appointment first, then assign doctor
+            appointment_values = {
+                "id": UUID(str(uuid.uuid4())),
+                "patient_id": appointment_data.patient_id,
+                "doctor_id": None,
+                "appointment_date": appointment_data.appointment_date or get_timezone_aware_now(),
+                "reason": appointment_data.reason,
+                "urgency": appointment_data.urgency,
+                "status": AppointmentStatus.SCHEDULED,
+                "created_by": current_user_id
+            }
+            
+            # Insert appointment to get the object
+            result = await db.execute(
+                insert(Appointment)
+                .values(**appointment_values)
+                .returning(Appointment)
+            )
+            temp_appointment = result.scalar_one()
+            
+            # Now assign doctor using the appointment object
+            doctor_id = await QueueService.assign_available_doctor(db, temp_appointment, preferred_department)
             if doctor_id:
                 appointment_data.doctor_id = doctor_id
                 print(f"Automatically assigned doctor with ID: {doctor_id}")
+            else:
+                print("No available doctors found for automatic assignment")
+            
+            # Rollback the temporary appointment creation
+            await db.rollback()
         
         # Create appointment directly
         print("Creating appointment directly")
@@ -109,7 +151,7 @@ async def create_appointment(
             "reason": appointment_data.reason,
             "urgency": appointment_data.urgency,
             "status": AppointmentStatus.SCHEDULED,
-            "created_by": current_user.id
+            "created_by": current_user_id
         }
         
         # Insert and get just the ID
@@ -138,12 +180,12 @@ async def create_appointment(
         background_tasks.add_task(
             log_audit_event,
             request=request,
-            user_id=current_user.id,
+            user_id=current_user_id,
             user_type="user",
             action="create",
             resource="appointment",
             resource_id=appointment.id,
-            details=f"Staff {current_user.username} created appointment for patient {patient.phone_number}"
+            details=f"Staff {current_user_username} created appointment for patient {patient.phone_number}"
         )
         
         # Add to queue
