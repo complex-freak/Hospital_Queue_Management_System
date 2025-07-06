@@ -19,6 +19,7 @@ interface QueueEntry {
   created_at: string | null;
   appointment?: {
     id: string;
+    doctor_id?: string;
     reason: string;
     urgency: string;
     created_at: string | null;
@@ -49,6 +50,8 @@ interface QueuePatient extends PatientType {
   checkInTime: string | null;
   priority: PriorityLevel;
   status: string;
+  appointment_id?: string;
+  doctor_id?: string;
 }
 
 // Helper function to convert backend priority to PriorityLevel
@@ -191,7 +194,34 @@ const Dashboard = () => {
           // Safely handle date values
           const appointmentDate = queueEntry.appointment?.created_at;
           const queueDate = queueEntry.created_at;
-          const checkInTime = appointmentDate || queueDate || null;
+          
+          // Validate and sanitize date values
+          let checkInTime: string | null = null;
+          
+          // Try appointment date first, then queue date
+          if (appointmentDate && typeof appointmentDate === 'string' && appointmentDate.trim()) {
+            const testDate = new Date(appointmentDate);
+            if (!isNaN(testDate.getTime())) {
+              checkInTime = appointmentDate;
+            }
+          }
+          
+          if (!checkInTime && queueDate && typeof queueDate === 'string' && queueDate.trim()) {
+            const testDate = new Date(queueDate);
+            if (!isNaN(testDate.getTime())) {
+              checkInTime = queueDate;
+            } else {
+              console.warn('Invalid queue date:', queueDate);
+            }
+          }
+          
+          // Debug logging for invalid dates
+          if (appointmentDate && typeof appointmentDate === 'string' && appointmentDate.trim()) {
+            const testAppointmentDate = new Date(appointmentDate);
+            if (isNaN(testAppointmentDate.getTime())) {
+              console.warn('Invalid appointment date:', appointmentDate);
+            }
+          }
           
           // Safely handle name
           const firstName = queueEntry.appointment?.patient?.first_name || '';
@@ -205,7 +235,9 @@ const Dashboard = () => {
             reason: queueEntry.appointment?.reason || 'No reason provided',
             checkInTime: checkInTime,
             priority: convertPriority(queueEntry.appointment?.urgency || 'medium'),
-            status: queueEntry.status || 'waiting'
+            status: queueEntry.status || 'waiting',
+            appointment_id: queueEntry.appointment?.id,
+            doctor_id: queueEntry.appointment?.doctor_id
           };
         });
         setPatients(newPatients);

@@ -361,7 +361,7 @@ async def create_doctor(
             action="create",
             resource="doctor",
             resource_id=doctor.id,
-            details=f"Admin {current_user.username} created doctor {doctor.full_name}"
+            details=f"Admin {current_user.username} created doctor {first_name} {last_name}"
         )
         
         return doctor
@@ -389,7 +389,7 @@ async def get_doctors(
     """Get all doctors"""
     try:
         result = await db.execute(
-            select(Doctor).order_by(column("full_name")).offset(skip).limit(limit)
+            select(Doctor).join(User).order_by(User.first_name, User.last_name).offset(skip).limit(limit)
         )
         doctors = result.scalars().all()
         
@@ -451,7 +451,7 @@ async def update_doctor(
             action="update",
             resource="doctor",
             resource_id=doctor_id,
-            details=f"Admin {current_user.username} updated doctor {doctor.full_name}"
+            details=f"Admin {current_user.username} updated doctor {doctor.user.first_name} {doctor.user.last_name}"
         )
         
         return doctor
@@ -601,13 +601,15 @@ async def get_system_analytics(
         # Most active doctors
         doctor_activity = await db.execute(
             select(
-                column("full_name"),
+                User.first_name,
+                User.last_name,
                 func.count(Appointment.id).label('appointment_count')
             )
             .select_from(Doctor)
+            .join(User, Doctor.user_id == User.id)
             .join(Appointment, Doctor.id == Appointment.doctor_id)
             .where(Appointment.created_at >= start_date)
-            .group_by(Doctor.id, column("full_name"))
+            .group_by(Doctor.id, User.first_name, User.last_name)
             .order_by(desc(func.count(Appointment.id)))
             .limit(10)
         )
@@ -633,7 +635,7 @@ async def get_system_analytics(
                 for row in daily_wait_times.all()
             ],
             doctor_activity=[
-                {"doctor_name": row.full_name, "appointment_count": row.appointment_count}
+                {"doctor_name": f"{row.first_name} {row.last_name}", "appointment_count": row.appointment_count}
                 for row in doctor_activity.all()
             ],
             urgency_distribution=[

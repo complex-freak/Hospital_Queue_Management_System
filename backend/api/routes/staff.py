@@ -126,7 +126,10 @@ async def create_appointment(
         # Fetch the full appointment object with relationships
         result = await db.execute(
             select(Appointment)
-            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .options(
+                selectinload(Appointment.patient), 
+                selectinload(Appointment.doctor).selectinload(Doctor.user)
+            )
             .where(Appointment.id == appointment_id)
         )
         appointment = result.scalar_one()
@@ -169,7 +172,10 @@ async def create_appointment(
         # Re-fetch the appointment with relationships loaded before returning
         result = await db.execute(
             select(Appointment)
-            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .options(
+                selectinload(Appointment.patient), 
+                selectinload(Appointment.doctor).selectinload(Doctor.user)
+            )
             .where(Appointment.id == appointment.id)
         )
         appointment = result.scalar_one()
@@ -206,7 +212,7 @@ async def get_appointments(
     try:
         query = select(Appointment).options(
             selectinload(Appointment.patient),
-            selectinload(Appointment.doctor)
+            selectinload(Appointment.doctor).selectinload(Doctor.user)
         ).order_by(desc(Appointment.created_at))
         
         if status_filter:
@@ -257,7 +263,10 @@ async def update_appointment(
         # Re-fetch the appointment with relationships loaded
         result = await db.execute(
             select(Appointment)
-            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .options(
+                selectinload(Appointment.patient), 
+                selectinload(Appointment.doctor).selectinload(Doctor.user)
+            )
             .where(Appointment.id == appointment_id)
         )
         appointment = result.scalar_one()
@@ -1210,7 +1219,7 @@ async def assign_patient_to_doctor(
         # Re-fetch the appointment with relationships loaded
         result = await db.execute(
             select(Appointment)
-            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor).selectinload(Doctor.user))
             .where(Appointment.id == appointment_id)
         )
         appointment = result.scalar_one()
@@ -1286,7 +1295,7 @@ async def cancel_appointment(
         # Re-fetch the appointment with relationships loaded
         result = await db.execute(
             select(Appointment)
-            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor).selectinload(Doctor.user))
             .where(Appointment.id == appointment_id)
         )
         appointment = result.scalar_one()

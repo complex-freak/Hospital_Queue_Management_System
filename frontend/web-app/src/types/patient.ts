@@ -43,6 +43,7 @@ export interface Patient {
 export interface ConsultationFeedback {
   patientId: string;
   appointmentId?: string;
+  doctorId?: string;
   diagnosis: string;
   treatment: string;
   prescription: string;

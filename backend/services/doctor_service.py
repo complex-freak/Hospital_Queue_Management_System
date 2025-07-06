@@ -1,11 +1,11 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, or_, desc, insert
+from sqlalchemy import select, and_, func, or_, desc, insert, update
 from uuid import UUID
 from datetime import datetime, date, timedelta
 import uuid
 
-from models import Doctor, User, Patient, Appointment, Queue, PatientNote, ConsultationFeedback
+from models import Doctor, User, Patient, Appointment, Queue, PatientNote, ConsultationFeedback, AppointmentStatus
 from schemas import (
     DoctorUpdate, PatientNoteCreate, PatientNoteUpdate, 
     ConsultationFeedbackCreate, ConsultationFeedbackUpdate,
@@ -197,23 +197,37 @@ class DoctorService:
         feedback_data: ConsultationFeedbackCreate
     ) -> ConsultationFeedback:
         """Create consultation feedback for an appointment"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"Starting create_consultation_feedback for appointment {feedback_data.appointment_id}")
+        
         # Check if appointment exists
+        logger.info("Checking if appointment exists")
         result = await db.execute(
             select(Appointment).where(Appointment.id == feedback_data.appointment_id)
         )
         appointment = result.scalar_one_or_none()
         if not appointment:
+            logger.error(f"Appointment {feedback_data.appointment_id} not found")
             raise ValueError("Appointment not found")
         
+        logger.info(f"Found appointment: {appointment.id}")
+        
         # Check if doctor exists
+        logger.info(f"Checking if doctor {feedback_data.doctor_id} exists")
         result = await db.execute(
             select(Doctor).where(Doctor.id == feedback_data.doctor_id)
         )
         doctor = result.scalar_one_or_none()
         if not doctor:
+            logger.error(f"Doctor {feedback_data.doctor_id} not found")
             raise ValueError("Doctor not found")
         
+        logger.info(f"Found doctor: {doctor.id}")
+        
         # Check if feedback already exists
+        logger.info("Checking if feedback already exists")
         result = await db.execute(
             select(ConsultationFeedback).where(
                 ConsultationFeedback.appointment_id == feedback_data.appointment_id
@@ -221,7 +235,10 @@ class DoctorService:
         )
         existing_feedback = result.scalar_one_or_none()
         if existing_feedback:
+            logger.error(f"Feedback already exists for appointment {feedback_data.appointment_id}")
             raise ValueError("Consultation feedback already exists for this appointment")
+        
+        logger.info("No existing feedback found, creating new feedback")
         
         # Create new feedback
         feedback = ConsultationFeedback()
@@ -234,9 +251,12 @@ class DoctorService:
         feedback.follow_up_date = feedback_data.follow_up_date
         feedback.duration = feedback_data.duration
         
-        # Update appointment status to completed
-        appointment.status = "completed"
+        logger.info(f"Created feedback object with ID: {feedback.id}")
         
+        # Update appointment status to completed
+        appointment.status = AppointmentStatus.COMPLETED
+        
+        logger.info("Inserting consultation feedback into database")
         result = await db.execute(insert(ConsultationFeedback).values(
             id=feedback.id,
             appointment_id=feedback.appointment_id,
@@ -247,10 +267,23 @@ class DoctorService:
             follow_up_date=feedback.follow_up_date,
             duration=feedback.duration
         ).returning(ConsultationFeedback))
-        feedback = result.scalar_one()
+        inserted_feedback = result.scalar_one()
+        
+        logger.info(f"Inserted feedback: {inserted_feedback.id}")
+        
+        # Update appointment status in database
+        logger.info("Updating appointment status to COMPLETED")
+        await db.execute(
+            update(Appointment)
+            .where(Appointment.id == appointment.id)
+            .values(status=AppointmentStatus.COMPLETED)
+        )
+        
+        logger.info("Committing transaction")
         await db.commit()
         
-        return feedback
+        logger.info(f"Successfully created consultation feedback: {inserted_feedback.id}")
+        return inserted_feedback
     
     @staticmethod
     async def get_consultation_feedback(

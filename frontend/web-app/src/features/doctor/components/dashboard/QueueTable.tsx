@@ -20,6 +20,8 @@ interface QueuePatient extends PatientType {
   checkInTime: string | null;
   priority: PriorityLevel;
   status: string;
+  appointment_id?: string;
+  doctor_id?: string;
 }
 
 interface QueueTableProps {
@@ -48,10 +50,31 @@ const formatDate = (dateString: string | null | undefined): string => {
   if (!dateString) return 'N/A';
   
   try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'N/A';
-    return format(date, 'h:mm a');
+    // Handle different date string formats
+    let date: Date;
+    
+    // If it's already a valid date string, use it directly
+    if (typeof dateString === 'string' && dateString.trim()) {
+      date = new Date(dateString);
+    } else {
+      return 'N/A';
+    }
+    
+    // Check if the date is valid
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date string:', dateString);
+      return 'N/A';
+    }
+    
+    // Use a more robust format that handles edge cases
+    try {
+      return format(date, 'h:mm a');
+    } catch (formatError) {
+      console.warn('Error formatting date:', formatError, 'Date:', date, 'Original string:', dateString);
+      return 'N/A';
+    }
   } catch (error) {
+    console.warn('Error parsing date:', error, 'Date string:', dateString);
     return 'N/A';
   }
 };
@@ -59,19 +82,39 @@ const formatDate = (dateString: string | null | undefined): string => {
 // Helper function to safely compare dates
 const compareDates = (dateA: string | null | undefined, dateB: string | null | undefined): number => {
   try {
-    const date1 = dateA ? new Date(dateA) : null;
-    const date2 = dateB ? new Date(dateB) : null;
+    let date1: Date | null = null;
+    let date2: Date | null = null;
+    
+    // Parse date A
+    if (dateA && typeof dateA === 'string' && dateA.trim()) {
+      date1 = new Date(dateA);
+      if (isNaN(date1.getTime())) {
+        console.warn('Invalid date A:', dateA);
+        date1 = null;
+      }
+    }
+    
+    // Parse date B
+    if (dateB && typeof dateB === 'string' && dateB.trim()) {
+      date2 = new Date(dateB);
+      if (isNaN(date2.getTime())) {
+        console.warn('Invalid date B:', dateB);
+        date2 = null;
+      }
+    }
     
     if (!date1 && !date2) return 0;
     if (!date1) return 1; // null dates go last
     if (!date2) return -1;
     
-    if (isNaN(date1.getTime()) && isNaN(date2.getTime())) return 0;
-    if (isNaN(date1.getTime())) return 1;
-    if (isNaN(date2.getTime())) return -1;
-    
-    return compareAsc(date1, date2);
+    try {
+      return compareAsc(date1, date2);
+    } catch (compareError) {
+      console.warn('Error comparing dates:', compareError, 'Date1:', date1, 'Date2:', date2);
+      return 0;
+    }
   } catch (error) {
+    console.warn('Error in compareDates:', error, 'DateA:', dateA, 'DateB:', dateB);
     return 0;
   }
 };
@@ -268,7 +311,14 @@ const QueueTable: React.FC<QueueTableProps> = ({
                   {patient.reason}
                 </TableCell>
                 <TableCell className="hidden md:table-cell">
-                  {formatDate(patient.checkInTime)}
+                  {(() => {
+                    try {
+                      return formatDate(patient.checkInTime);
+                    } catch (error) {
+                      console.error('Error formatting checkInTime:', error, 'Patient:', patient);
+                      return 'N/A';
+                    }
+                  })()}
                 </TableCell>
                 <TableCell>
                   <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${getPriorityClass(patient.priority)}`}>
@@ -381,6 +431,8 @@ const QueueTable: React.FC<QueueTableProps> = ({
           <ConsultationFeedbackForm 
             patientId={selectedPatientId}
             patientName={patients.find(p => p.id === selectedPatientId)?.name}
+            appointmentId={patients.find(p => p.id === selectedPatientId)?.appointment_id}
+            doctorId={patients.find(p => p.id === selectedPatientId)?.doctor_id}
             onClose={closeConsultationForm}
             onSubmitSuccess={handleConsultationSuccess}
           />

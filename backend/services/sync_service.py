@@ -114,7 +114,7 @@ class SyncService:
                             'server_data': {
                                 'id': str(existing_patient.id),
                                 'phone_number': existing_patient.phone_number,
-                                'full_name': existing_patient.full_name,
+                                'full_name': f"{existing_patient.first_name} {existing_patient.last_name}",
                                 'updated_at': existing_patient.updated_at.isoformat() if existing_patient.updated_at else None
                             }
                         })
@@ -278,7 +278,7 @@ class SyncService:
                 server_updates['patients'].append({
                     'id': str(patient.id),
                     'phone_number': patient.phone_number,
-                    'full_name': patient.full_name,
+                    'full_name': f"{patient.first_name} {patient.last_name}",
                     'date_of_birth': patient.date_of_birth.isoformat() if patient.date_of_birth else None,
                     'gender': patient.gender,
                     'address': patient.address,

@@ -500,7 +500,7 @@ async def mark_patient_served(
             action="update",
             resource="queue",
             resource_id=queue_id,
-            details=f"Doctor {doctor.full_name} marked patient {patient.phone_number} as served"
+            details=f"Doctor {current_user.first_name} {current_user.last_name} marked patient {patient.phone_number} as served"
         )
         
         return {"message": "Patient marked as served successfully"}
@@ -952,20 +952,26 @@ async def create_consultation_feedback(
     db: AsyncSession = Depends(get_db)
 ):
     """Create consultation feedback for an appointment"""
+    logger.info(f"Starting consultation feedback creation for appointment {appointment_id}")
     try:
         # Get doctor info
+        logger.info(f"Fetching doctor info for user {current_user.id}")
         result = await db.execute(
             select(Doctor).where(Doctor.user_id == current_user.id)
         )
         doctor = result.scalar_one_or_none()
         
         if not doctor:
+            logger.error(f"Doctor profile not found for user {current_user.id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Doctor profile not found"
             )
         
+        logger.info(f"Found doctor: {doctor.id}")
+        
         # Verify appointment exists and belongs to this doctor
+        logger.info(f"Verifying appointment {appointment_id} belongs to doctor {doctor.id}")
         result = await db.execute(
             select(Appointment).where(
                 and_(
@@ -977,14 +983,19 @@ async def create_consultation_feedback(
         
         appointment = result.scalar_one_or_none()
         if not appointment:
+            logger.error(f"Appointment {appointment_id} not found or not assigned to doctor {doctor.id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Appointment not found or not assigned to this doctor"
             )
         
+        logger.info(f"Found appointment: {appointment.id}")
+        
         # Override appointment_id and doctor_id in feedback_data
         feedback_data.appointment_id = appointment_id
         feedback_data.doctor_id = doctor.id
+        
+        logger.info(f"Calling DoctorService.create_consultation_feedback with data: {feedback_data}")
         
         # Create feedback
         try:
@@ -993,7 +1004,10 @@ async def create_consultation_feedback(
                 feedback_data=feedback_data
             )
             
+            logger.info(f"Successfully created feedback: {feedback.id}")
+            
             # Log audit event
+            logger.info("Adding audit event to background tasks")
             background_tasks.add_task(
                 log_audit_event,
                 request=request,
@@ -1005,17 +1019,24 @@ async def create_consultation_feedback(
                 details=f"Doctor created consultation feedback for appointment {appointment_id}"
             )
             
+            logger.info("Returning feedback object")
             return feedback
             
         except ValueError as e:
+            logger.error(f"ValueError in create_consultation_feedback: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e)
             )
         
     except HTTPException:
+        logger.info("Re-raising HTTPException")
         raise
     except Exception as e:
+        logger.error(f"Unexpected error in create_consultation_feedback: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create consultation feedback"
@@ -1223,7 +1244,7 @@ async def skip_patient(
             action="update",
             resource="queue",
             resource_id=queue_id,
-            details=f"Doctor {doctor.full_name} skipped patient {patient.phone_number}"
+            details=f"Doctor {current_user.first_name} {current_user.last_name} skipped patient {patient.phone_number}"
         )
         
         return {"message": "Patient skipped successfully"}

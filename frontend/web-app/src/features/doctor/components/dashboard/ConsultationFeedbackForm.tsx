@@ -15,11 +15,28 @@ import { CalendarIcon, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConsultationFeedback } from '@/types/patient';
 import { apiService } from '@/services/api';
+import { doctorService } from '@/services/api/doctor-service';
 import { toast } from '@/hooks/use-toast';
+import { useEffect, useState } from 'react';
+
+interface DoctorProfile {
+  id: string;
+  user_id: string;
+  specialization: string;
+  department: string;
+  is_available: boolean;
+  shift_start?: string;
+  shift_end?: string;
+  bio?: string;
+  education?: string;
+  experience?: string;
+}
 
 interface ConsultationFeedbackFormProps {
   patientId: string | null;
   patientName?: string;
+  appointmentId?: string;
+  doctorId?: string;
   onClose: () => void;
   onSubmitSuccess: () => void;
 }
@@ -35,9 +52,14 @@ const consultationSchema = z.object({
 const ConsultationFeedbackForm: React.FC<ConsultationFeedbackFormProps> = ({
   patientId,
   patientName = 'Patient',
+  appointmentId,
+  doctorId,
   onClose,
   onSubmitSuccess,
 }) => {
+  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  
   const form = useForm<z.infer<typeof consultationSchema>>({
     resolver: zodResolver(consultationSchema),
     defaultValues: {
@@ -50,12 +72,64 @@ const ConsultationFeedbackForm: React.FC<ConsultationFeedbackFormProps> = ({
   
   const { isSubmitting } = form.formState;
 
+  // Fetch doctor profile on component mount
+  useEffect(() => {
+    const fetchDoctorProfile = async () => {
+      try {
+        setIsLoadingProfile(true);
+        const response = await doctorService.getDoctorProfile();
+        if (response.success && response.data) {
+          setDoctorProfile(response.data);
+        } else {
+          console.error('Failed to fetch doctor profile:', response.error);
+          toast({
+            title: 'Error',
+            description: 'Failed to load doctor profile. Please try again.',
+            variant: 'destructive',
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching doctor profile:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load doctor profile. Please try again.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoadingProfile(false);
+      }
+    };
+
+    fetchDoctorProfile();
+  }, []);
+
   const onSubmit = async (data: z.infer<typeof consultationSchema>) => {
-    if (!patientId) return;
+    if (!patientId || !appointmentId) {
+      toast({
+        title: 'Error',
+        description: 'Missing required data for consultation submission.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    // Use doctor ID from profile if available, otherwise fall back to the one passed as prop
+    const currentDoctorId = doctorProfile?.id || doctorId;
+    
+    if (!currentDoctorId) {
+      toast({
+        title: 'Error',
+        description: 'Unable to determine doctor ID. Please try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
     
     try {
       const consultationData: ConsultationFeedback = {
         patientId,
+        appointmentId,
+        doctorId: currentDoctorId,
         diagnosis: data.diagnosis,
         treatment: data.treatment,
         prescription: data.prescription || '',
@@ -63,7 +137,7 @@ const ConsultationFeedbackForm: React.FC<ConsultationFeedbackFormProps> = ({
         notes: data.notes || '',
       };
       
-      await apiService.submitConsultation(patientId, consultationData);
+      await apiService.submitConsultation(appointmentId, consultationData);
       toast({
         title: 'Consultation Submitted',
         description: 'Patient consultation feedback has been saved successfully.',
@@ -79,6 +153,29 @@ const ConsultationFeedbackForm: React.FC<ConsultationFeedbackFormProps> = ({
   };
 
   if (!patientId) return null;
+
+  // Show loading state while fetching doctor profile
+  if (isLoadingProfile) {
+    return (
+      <Card className="h-full w-full">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <div>
+            <CardTitle className="text-xl">Consultation Feedback</CardTitle>
+            <CardDescription>
+              Loading doctor profile...
+            </CardDescription>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0">
+            <X className="h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent className="flex h-64 items-center justify-center">
+          <Loader className="h-8 w-8 text-primary" />
+          <span className="ml-2 text-gray-500">Loading doctor profile...</span>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="h-full w-full">
@@ -222,7 +319,7 @@ const ConsultationFeedbackForm: React.FC<ConsultationFeedbackFormProps> = ({
             <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || isLoadingProfile}>
               {isSubmitting ? (
                 <>
                   <Loader className="mr-2 h-4 w-4" />

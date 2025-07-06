@@ -401,6 +401,8 @@ interface FrontendConsultationFeedbackData {
   prescription?: string;
   followUpDate?: string;
   duration?: number;
+  appointmentId?: string;
+  doctorId?: string;
 }
 
 /**
@@ -480,6 +482,8 @@ export const transformToBackendConsultationFeedback = (frontendFeedback: Fronten
     treatment: frontendFeedback.treatment,
     prescription: frontendFeedback.prescription,
     follow_up_date: frontendFeedback.followUpDate,
-    duration: frontendFeedback.duration
+    duration: frontendFeedback.duration,
+    appointment_id: frontendFeedback.appointmentId,
+    doctor_id: frontendFeedback.doctorId
   };
 }; 
