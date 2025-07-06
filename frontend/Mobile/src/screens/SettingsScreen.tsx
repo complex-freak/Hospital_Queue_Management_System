@@ -55,6 +55,38 @@ const SettingsScreen: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const handlePhoneInput = (text: string) => {
+        // Only allow numbers and plus sign
+        const filtered = text.replace(/[^0-9+]/g, '');
+        setPhoneNumber(filtered);
+        
+        // Clear error when user types
+        if (errors.phoneNumber) {
+            setErrors({ ...errors, phoneNumber: '' });
+        }
+    };
+
+    // Format phone number for backend validation
+    const formatPhoneNumberForBackend = (phoneNumber: string): string => {
+        // Remove all non-digit characters except +
+        let cleaned = phoneNumber.replace(/[^0-9+]/g, '');
+        
+        // If it starts with 0, replace with +255 (Tanzania country code)
+        if (cleaned.startsWith('0')) {
+            cleaned = '+255' + cleaned.substring(1);
+        }
+        // If it starts with 255 without +, add +
+        else if (cleaned.startsWith('255') && !cleaned.startsWith('+')) {
+            cleaned = '+' + cleaned;
+        }
+        // If it doesn't start with + and doesn't start with 0, add +255
+        else if (!cleaned.startsWith('+') && !cleaned.startsWith('0')) {
+            cleaned = '+255' + cleaned;
+        }
+        
+        return cleaned;
+    };
+
     // Fetch settings on component mount
     useEffect(() => {
         fetchSettings();
@@ -245,6 +277,7 @@ const SettingsScreen: React.FC = () => {
         if (validateProfileForm()) {
             try {
                 // Update with fields that match the AuthContext updateProfile function signature
+                // Note: phoneNumber is not included as it requires special handling
                 await updateProfile({});
                 setShowProfileUpdateForm(false);
                 Alert.alert(
@@ -376,7 +409,7 @@ const SettingsScreen: React.FC = () => {
                         style={[styles.modalInput, errors.phoneNumber ? styles.inputError : null]}
                         placeholder={t('phoneNumber')}
                         value={phoneNumber}
-                        onChangeText={setPhoneNumber}
+                        onChangeText={handlePhoneInput}
                         keyboardType="phone-pad"
                         placeholderTextColor="#888"
                     />

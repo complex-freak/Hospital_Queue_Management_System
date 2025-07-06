@@ -8,7 +8,7 @@ export const ENVIRONMENT: Environment = 'development';
 
 // API URLs for different environments
 const API_URLS = {
-  development: 'http://192.168.173.140:8000', // Local development (using your IP address)
+  development: 'http://10.31.110.248:8000', // Local development (using your IP address)
   staging: 'https://staging-api.hospitalapp.com',
   production: 'https://api.hospitalapp.com',
 };

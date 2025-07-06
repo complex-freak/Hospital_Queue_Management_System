@@ -41,14 +41,35 @@ const RegisterScreen: React.FC = () => {
     const [secureConfirmTextEntry, setSecureConfirmTextEntry] = useState(true);
 
     const handlePhoneInput = (text: string) => {
-        // Only allow numbers
-        const filtered = text.replace(/[^0-9]/g, '');
+        // Only allow numbers and plus sign
+        const filtered = text.replace(/[^0-9+]/g, '');
         setPhoneNumber(filtered);
 
         // Clear error when user types
         if (errors.phoneNumber) {
             setErrors({ ...errors, phoneNumber: '' });
         }
+    };
+
+    // Format phone number for backend validation
+    const formatPhoneNumberForBackend = (phoneNumber: string): string => {
+        // Remove all non-digit characters except +
+        let cleaned = phoneNumber.replace(/[^0-9+]/g, '');
+        
+        // If it starts with 0, replace with +255 (Tanzania country code)
+        if (cleaned.startsWith('0')) {
+            cleaned = '+255' + cleaned.substring(1);
+        }
+        // If it starts with 255 without +, add +
+        else if (cleaned.startsWith('255') && !cleaned.startsWith('+')) {
+            cleaned = '+' + cleaned;
+        }
+        // If it doesn't start with + and doesn't start with 0, add +255
+        else if (!cleaned.startsWith('+') && !cleaned.startsWith('0')) {
+            cleaned = '+255' + cleaned;
+        }
+        
+        return cleaned;
     };
 
     const handleInputChange = (field: string, value: string) => {
@@ -109,7 +130,10 @@ const RegisterScreen: React.FC = () => {
                 const firstName = nameParts[0];
                 const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
                 
-                await register(firstName, lastName, phoneNumber, password);
+                // Format phone number for backend validation
+                const formattedPhoneNumber = formatPhoneNumberForBackend(phoneNumber);
+                
+                await register(firstName, lastName, formattedPhoneNumber, password);
             } catch (error) {
                 console.error('Registration error:', error);
             }

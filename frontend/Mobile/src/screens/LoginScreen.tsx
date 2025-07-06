@@ -38,7 +38,9 @@ const LoginScreen: React.FC = () => {
 
     const handleInputChange = (field: 'phoneNumber' | 'password', value: string) => {
         if (field === 'phoneNumber') {
-            setPhoneNumber(value);
+            // Only allow numbers and plus sign for phone number
+            const filtered = value.replace(/[^0-9+]/g, '');
+            setPhoneNumber(filtered);
         } else {
             setPassword(value);
         }
@@ -47,6 +49,27 @@ const LoginScreen: React.FC = () => {
         if (errors[field]) {
             setErrors({ ...errors, [field]: '' });
         }
+    };
+
+    // Format phone number for backend validation
+    const formatPhoneNumberForBackend = (phoneNumber: string): string => {
+        // Remove all non-digit characters except +
+        let cleaned = phoneNumber.replace(/[^0-9+]/g, '');
+        
+        // If it starts with 0, replace with +255 (Tanzania country code)
+        if (cleaned.startsWith('0')) {
+            cleaned = '+255' + cleaned.substring(1);
+        }
+        // If it starts with 255 without +, add +
+        else if (cleaned.startsWith('255') && !cleaned.startsWith('+')) {
+            cleaned = '+' + cleaned;
+        }
+        // If it doesn't start with + and doesn't start with 0, add +255
+        else if (!cleaned.startsWith('+') && !cleaned.startsWith('0')) {
+            cleaned = '+255' + cleaned;
+        }
+        
+        return cleaned;
     };
 
     const validateForm = () => {
@@ -70,7 +93,10 @@ const LoginScreen: React.FC = () => {
     const handleLogin = async () => {
         if (validateForm()) {
             try {
-                await login(phoneNumber, password);
+                // Format phone number for backend validation
+                const formattedPhoneNumber = formatPhoneNumberForBackend(phoneNumber);
+                
+                await login(formattedPhoneNumber, password);
             } catch (error) {
                 console.error('Login error:', error);
             }

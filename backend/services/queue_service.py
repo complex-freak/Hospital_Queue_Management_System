@@ -117,12 +117,12 @@ class QueueService:
             
             print(f"Queue values: {queue_values}")
             
-            stmt = insert(Queue).values(**queue_values).returning(Queue)
+            stmt = insert(Queue).values(**queue_values).returning(Queue.id)
             
             try:
                 result = await db.execute(stmt)
-                queue_entry = result.scalar_one()
-                print(f"Queue entry created with ID: {queue_entry.id}")
+                queue_id = result.scalar_one()
+                print(f"Queue entry created with ID: {queue_id}")
                 await db.commit()
                 
                 # Re-fetch the queue entry with relationships loaded
@@ -130,9 +130,9 @@ class QueueService:
                     select(Queue)
                     .options(
                         selectinload(Queue.appointment).selectinload(Appointment.patient),
-                        selectinload(Queue.appointment).selectinload(Appointment.doctor)
+                        selectinload(Queue.appointment).selectinload(Appointment.doctor).selectinload(Doctor.user)
                     )
-                    .where(Queue.id == queue_entry.id)
+                    .where(Queue.id == queue_id)
                 )
                 queue_entry = result.scalar_one()
                 
@@ -159,7 +159,7 @@ class QueueService:
                     select(Queue)
                     .options(
                         selectinload(Queue.appointment).selectinload(Appointment.patient),
-                        selectinload(Queue.appointment).selectinload(Appointment.doctor)
+                        selectinload(Queue.appointment).selectinload(Appointment.doctor).selectinload(Doctor.user)
                     )
                     .where(Queue.id == queue_id)
                 )

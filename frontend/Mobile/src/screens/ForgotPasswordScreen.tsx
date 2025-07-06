@@ -29,6 +29,36 @@ const ForgotPasswordScreen: React.FC = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
+    const handlePhoneInput = (text: string) => {
+        // Only allow numbers and plus sign
+        const filtered = text.replace(/[^0-9+]/g, '');
+        setPhoneNumber(filtered);
+        
+        // Clear error when user types
+        if (error) setError('');
+    };
+
+    // Format phone number for backend validation
+    const formatPhoneNumberForBackend = (phoneNumber: string): string => {
+        // Remove all non-digit characters except +
+        let cleaned = phoneNumber.replace(/[^0-9+]/g, '');
+        
+        // If it starts with 0, replace with +255 (Tanzania country code)
+        if (cleaned.startsWith('0')) {
+            cleaned = '+255' + cleaned.substring(1);
+        }
+        // If it starts with 255 without +, add +
+        else if (cleaned.startsWith('255') && !cleaned.startsWith('+')) {
+            cleaned = '+' + cleaned;
+        }
+        // If it doesn't start with + and doesn't start with 0, add +255
+        else if (!cleaned.startsWith('+') && !cleaned.startsWith('0')) {
+            cleaned = '+255' + cleaned;
+        }
+        
+        return cleaned;
+    };
+
     const validateForm = () => {
         if (!phoneNumber.trim()) {
             setError(t('phoneNumberRequired'));
@@ -85,10 +115,7 @@ const ForgotPasswordScreen: React.FC = () => {
                                 style={styles.input}
                                 placeholder={t('phoneNumber')}
                                 value={phoneNumber}
-                                onChangeText={(text) => {
-                                    setPhoneNumber(text);
-                                    if (error) setError('');
-                                }}
+                                onChangeText={handlePhoneInput}
                                 keyboardType="phone-pad"
                                 placeholderTextColor={COLORS.gray}
                             />

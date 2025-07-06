@@ -1,0 +1,450 @@
+2025-07-06 12:06:53,876 - main - INFO - Request: POST http://10.31.110.248:8000/api/v1/patient/appointments
+2025-07-06 12:06:54,181 INFO sqlalchemy.engine.Engine select pg_catalog.version()
+2025-07-06 12:06:54,181 - sqlalchemy.engine.Engine - INFO - select pg_catalog.version()2025-07-06 12:06:54,204 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-07-06 12:06:54,204 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-07-06 12:06:54,204 INFO sqlalchemy.engine.Engine select current_schema()
+2025-07-06 12:06:54,204 - sqlalchemy.engine.Engine - INFO - select current_schema()    
+2025-07-06 12:06:54,204 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-07-06 12:06:54,204 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-07-06 12:06:54,213 INFO sqlalchemy.engine.Engine show standard_conforming_strings 
+2025-07-06 12:06:54,213 - sqlalchemy.engine.Engine - INFO - show standard_conforming_strings
+2025-07-06 12:06:54,214 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-07-06 12:06:54,214 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-07-06 12:06:54,217 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-07-06 12:06:54,217 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-07-06 12:06:54,254 INFO sqlalchemy.engine.Engine SELECT patients.id, patients.phone_number, patients.password_hash, patients.first_name, patients.last_name, patients.date_of_birth, patients.gender, patients.email, patients.address, patients.emergency_contact, patients.emergency_contact_name, patients.emergency_contact_relationship, patients.is_active, patients.created_at, patients.updated_at
+FROM patients
+WHERE patients.id = %s
+2025-07-06 12:06:54,254 - sqlalchemy.engine.Engine - INFO - SELECT patients.id, patients.phone_number, patients.password_hash, patients.first_name, patients.last_name, patients.date_of_birth, patients.gender, patients.email, patients.address, patients.emergency_contact, patients.emergency_contact_name, patients.emergency_contact_relationship, patients.is_active, patients.created_at, patients.updated_at
+FROM patients
+WHERE patients.id = %s
+2025-07-06 12:06:54,254 INFO sqlalchemy.engine.Engine [generated in 0.00213s] (UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'),)
+2025-07-06 12:06:54,254 - sqlalchemy.engine.Engine - INFO - [generated in 0.00213s] (UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'),)
+2025-07-06 12:06:54,254 INFO sqlalchemy.engine.Engine SELECT appointments.doctor_id, count(queue.id) AS queue_count
+FROM appointments JOIN queue ON queue.appointment_id = appointments.id
+WHERE queue.status IN (%s, %s) AND CURRENT_DATE = date(queue.created_at) GROUP BY appointments.doctor_id ORDER BY queue_count ASC
+2025-07-06 12:06:54,254 - sqlalchemy.engine.Engine - INFO - SELECT appointments.doctor_id, count(queue.id) AS queue_count
+FROM appointments JOIN queue ON queue.appointment_id = appointments.id
+WHERE queue.status IN (%s, %s) AND CURRENT_DATE = date(queue.created_at) GROUP BY appointments.doctor_id ORDER BY queue_count ASC
+2025-07-06 12:06:54,283 INFO sqlalchemy.engine.Engine [generated in 0.00229s] ('WAITING', 'CALLED')
+2025-07-06 12:06:54,283 - sqlalchemy.engine.Engine - INFO - [generated in 0.00229s] ('WAITING', 'CALLED')
+2025-07-06 12:06:54,331 INFO sqlalchemy.engine.Engine SELECT doctors.id, doctors.user_id, doctors.specialization, doctors.license_number, doctors.department, doctors.consultation_fee, doctors.is_available, doctors.shift_start, doctors.shift_end, doctors.bio, doctors.education, doctors.experience, users.id AS id_1, users.username, users.password_hash, users.email, users.first_name, users.last_name, users.role, users.is_active, users.created_at, users.updated_at
+FROM doctors JOIN users ON doctors.user_id = users.id
+WHERE doctors.id = %s
+2025-07-06 12:06:54,331 - sqlalchemy.engine.Engine - INFO - SELECT doctors.id, doctors.user_id, doctors.specialization, doctors.license_number, doctors.department, doctors.consultation_fee, doctors.is_available, doctors.shift_start, doctors.shift_end, doctors.bio, doctors.education, doctors.experience, users.id AS id_1, users.username, users.password_hash, users.email, users.first_name, users.last_name, users.role, users.is_active, users.created_at, users.updated_at
+FROM doctors JOIN users ON doctors.user_id = users.id
+WHERE doctors.id = %s
+2025-07-06 12:06:54,335 INFO sqlalchemy.engine.Engine [generated in 0.00284s] (UUID('faff1b64-5a04-42fa-bddc-458da0ada955'),)
+2025-07-06 12:06:54,335 - sqlalchemy.engine.Engine - INFO - [generated in 0.00284s] (UUID('faff1b64-5a04-42fa-bddc-458da0ada955'),)
+2025-07-06 12:06:54,353 INFO sqlalchemy.engine.Engine INSERT INTO appointments (id, patient_id, doctor_id, appointment_date, reason, urgency, status) VALUES (%s, %s, %s, %s, 
+%s, %s, %s) RETURNING appointments.id
+2025-07-06 12:06:54,353 - sqlalchemy.engine.Engine - INFO - INSERT INTO appointments (id, patient_id, doctor_id, appointment_date, reason, urgency, status) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING appointments.id
+2025-07-06 12:06:54,355 INFO sqlalchemy.engine.Engine [generated in 0.00156s] (UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'), UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'), UUID('faff1b64-5a04-42fa-bddc-458da0ada955'), datetime.datetime(2025, 7, 6, 9, 6, 54, 254117), 'followUp', 'NORMAL', 'SCHEDULED')
+2025-07-06 12:06:54,355 - sqlalchemy.engine.Engine - INFO - [generated in 0.00156s] (UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'), UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'), UUID('faff1b64-5a04-42fa-bddc-458da0ada955'), datetime.datetime(2025, 7, 6, 9, 6, 54, 254117), 'followUp', 'NORMAL', 'SCHEDULED')
+2025-07-06 12:06:54,370 INFO sqlalchemy.engine.Engine COMMIT
+2025-07-06 12:06:54,370 - sqlalchemy.engine.Engine - INFO - COMMIT
+2025-07-06 12:06:54,376 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-07-06 12:06:54,376 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-07-06 12:06:54,382 INFO sqlalchemy.engine.Engine SELECT appointments.id, appointments.patient_id, appointments.doctor_id, appointments.created_by, appointments.appointment_date, appointments.reason, appointments.urgency, appointments.status, appointments.notes, appointments.created_at, appointments.updated_at
+FROM appointments
+WHERE appointments.id = %s
+2025-07-06 12:06:54,382 - sqlalchemy.engine.Engine - INFO - SELECT appointments.id, appointments.patient_id, appointments.doctor_id, appointments.created_by, appointments.appointment_date, appointments.reason, appointments.urgency, appointments.status, appointments.notes, appointments.created_at, appointments.updated_at
+FROM appointments
+WHERE appointments.id = %s
+2025-07-06 12:06:54,383 INFO sqlalchemy.engine.Engine [generated in 0.00160s] (UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'),)
+2025-07-06 12:06:54,383 - sqlalchemy.engine.Engine - INFO - [generated in 0.00160s] (UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'),)
+2025-07-06 12:06:54,387 INFO sqlalchemy.engine.Engine SELECT patients.id AS patients_id, patients.phone_number AS patients_phone_number, patients.password_hash AS patients_password_hash, patients.first_name AS patients_first_name, patients.last_name AS patients_last_name, patients.date_of_birth AS patients_date_of_birth, patients.gender AS patients_gender, patients.email AS patients_email, patients.address AS patients_address, patients.emergency_contact AS patients_emergency_contact, patients.emergency_contact_name AS patients_emergency_contact_name, patients.emergency_contact_relationship AS patients_emergency_contact_relationship, patients.is_active AS patients_is_active, patients.created_at AS patients_created_at, patients.updated_at AS patients_updated_at
+FROM patients
+WHERE patients.id IN (%s)
+2025-07-06 12:06:54,387 - sqlalchemy.engine.Engine - INFO - SELECT patients.id AS patients_id, patients.phone_number AS patients_phone_number, patients.password_hash AS patients_password_hash, patients.first_name AS patients_first_name, patients.last_name AS patients_last_name, patients.date_of_birth AS patients_date_of_birth, patients.gender AS 
+patients_gender, patients.email AS patients_email, patients.address AS patients_address, patients.emergency_contact AS patients_emergency_contact, patients.emergency_contact_name AS patients_emergency_contact_name, patients.emergency_contact_relationship AS patients_emergency_contact_relationship, patients.is_active AS patients_is_active, patients.created_at AS patients_created_at, patients.updated_at AS patients_updated_at        
+FROM patients
+WHERE patients.id IN (%s)
+2025-07-06 12:06:54,394 INFO sqlalchemy.engine.Engine [generated in 0.00405s] (UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'),)
+2025-07-06 12:06:54,394 - sqlalchemy.engine.Engine - INFO - [generated in 0.00405s] (UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'),)
+2025-07-06 12:06:54,396 INFO sqlalchemy.engine.Engine SELECT doctors.id AS doctors_id, 
+doctors.user_id AS doctors_user_id, doctors.specialization AS doctors_specialization, doctors.license_number AS doctors_license_number, doctors.department AS doctors_department, doctors.consultation_fee AS doctors_consultation_fee, doctors.is_available AS doctors_is_available, doctors.shift_start AS doctors_shift_start, doctors.shift_end AS doctors_shift_end, doctors.bio AS doctors_bio, doctors.education AS doctors_education, doctors.experience AS doctors_experience
+FROM doctors
+WHERE doctors.id IN (%s)
+2025-07-06 12:06:54,396 - sqlalchemy.engine.Engine - INFO - SELECT doctors.id AS doctors_id, doctors.user_id AS doctors_user_id, doctors.specialization AS doctors_specialization, doctors.license_number AS doctors_license_number, doctors.department AS doctors_department, doctors.consultation_fee AS doctors_consultation_fee, doctors.is_available AS doctors_is_available, doctors.shift_start AS doctors_shift_start, doctors.shift_end AS doctors_shift_end, doctors.bio AS doctors_bio, doctors.education AS doctors_education, doctors.experience AS doctors_experience
+FROM doctors
+WHERE doctors.id IN (%s)
+2025-07-06 12:06:54,402 INFO sqlalchemy.engine.Engine [generated in 0.00304s] (UUID('faff1b64-5a04-42fa-bddc-458da0ada955'),)
+2025-07-06 12:06:54,402 - sqlalchemy.engine.Engine - INFO - [generated in 0.00304s] (UUID('faff1b64-5a04-42fa-bddc-458da0ada955'),)
+2025-07-06 12:06:54,406 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.username AS users_username, users.password_hash AS users_password_hash, users.email AS users_email, users.first_name AS users_first_name, users.last_name AS users_last_name, users.role AS users_role, users.is_active AS users_is_active, users.created_at AS users_created_at, users.updated_at AS users_updated_at
+FROM users
+WHERE users.id IN (%s)
+2025-07-06 12:06:54,406 - sqlalchemy.engine.Engine - INFO - SELECT users.id AS users_id, users.username AS users_username, users.password_hash AS users_password_hash, users.email AS users_email, users.first_name AS users_first_name, users.last_name AS users_last_name, users.role AS users_role, users.is_active AS users_is_active, users.created_at 
+AS users_created_at, users.updated_at AS users_updated_at
+FROM users
+WHERE users.id IN (%s)
+2025-07-06 12:06:54,408 INFO sqlalchemy.engine.Engine [generated in 0.00276s] (UUID('b002cd80-2683-46f1-8ebc-119d1e17fbb7'),)
+2025-07-06 12:06:54,408 - sqlalchemy.engine.Engine - INFO - [generated in 0.00276s] (UUID('b002cd80-2683-46f1-8ebc-119d1e17fbb7'),)
+2025-07-06 12:06:54,411 INFO sqlalchemy.engine.Engine SELECT appointments.id, appointments.patient_id, appointments.doctor_id, appointments.created_by, appointments.appointment_date, appointments.reason, appointments.urgency, appointments.status, appointments.notes, appointments.created_at, appointments.updated_at
+FROM appointments
+WHERE appointments.id = %s
+2025-07-06 12:06:54,411 - sqlalchemy.engine.Engine - INFO - SELECT appointments.id, appointments.patient_id, appointments.doctor_id, appointments.created_by, appointments.appointment_date, appointments.reason, appointments.urgency, appointments.status, appointments.notes, appointments.created_at, appointments.updated_at
+FROM appointments
+WHERE appointments.id = %s
+2025-07-06 12:06:54,414 INFO sqlalchemy.engine.Engine [generated in 0.00200s] (UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'),)
+2025-07-06 12:06:54,414 - sqlalchemy.engine.Engine - INFO - [generated in 0.00200s] (UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'),)
+Found appointment: 6eab8517-cbe3-4d49-9571-6a4e279e7899
+2025-07-06 12:06:54,419 INFO sqlalchemy.engine.Engine SELECT queue.id, queue.appointment_id, queue.patient_id, queue.doctor_id, queue.queue_number, queue.priority_score, queue.status, queue.estimated_wait_time, queue.called_at, queue.served_at, queue.created_at, queue.updated_at
+FROM queue
+WHERE appointment_id = %s AND queue.status IN (%s, %s)
+2025-07-06 12:06:54,419 - sqlalchemy.engine.Engine - INFO - SELECT queue.id, queue.appointment_id, queue.patient_id, queue.doctor_id, queue.queue_number, queue.priority_score, queue.status, queue.estimated_wait_time, queue.called_at, queue.served_at, queue.created_at, queue.updated_at
+FROM queue
+WHERE appointment_id = %s AND queue.status IN (%s, %s)
+2025-07-06 12:06:54,427 INFO sqlalchemy.engine.Engine [generated in 0.00482s] (UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'), 'WAITING', 'SERVING')
+2025-07-06 12:06:54,427 - sqlalchemy.engine.Engine - INFO - [generated in 0.00482s] (UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'), 'WAITING', 'SERVING')
+2025-07-06 12:06:54,432 INFO sqlalchemy.engine.Engine SELECT max(queue_number) AS max_1
+FROM queue
+WHERE date(created_at) = %s
+2025-07-06 12:06:54,432 - sqlalchemy.engine.Engine - INFO - SELECT max(queue_number) AS max_1
+FROM queue
+WHERE date(created_at) = %s
+2025-07-06 12:06:54,435 INFO sqlalchemy.engine.Engine [generated in 0.00243s] (datetime.date(2025, 7, 6),)
+2025-07-06 12:06:54,435 - sqlalchemy.engine.Engine - INFO - [generated in 0.00243s] (datetime.date(2025, 7, 6),)
+Next queue number: 17
+Priority score: 100
+2025-07-06 12:06:54,439 INFO sqlalchemy.engine.Engine SELECT queue.id, queue.appointment_id, queue.patient_id, queue.doctor_id, queue.queue_number, queue.priority_score, queue.status, queue.estimated_wait_time, queue.called_at, queue.served_at, queue.created_at, queue.updated_at
+FROM queue
+WHERE queue.status = %s AND date(created_at) = %s AND doctor_id = %s ORDER BY priority_score DESC
+2025-07-06 12:06:54,439 - sqlalchemy.engine.Engine - INFO - SELECT queue.id, queue.appointment_id, queue.patient_id, queue.doctor_id, queue.queue_number, queue.priority_score, queue.status, queue.estimated_wait_time, queue.called_at, queue.served_at, queue.created_at, queue.updated_at
+FROM queue
+WHERE queue.status = %s AND date(created_at) = %s AND doctor_id = %s ORDER BY priority_score DESC
+2025-07-06 12:06:54,439 INFO sqlalchemy.engine.Engine [generated in 0.00259s] ('WAITING', datetime.date(2025, 7, 6), UUID('faff1b64-5a04-42fa-bddc-458da0ada955'))
+2025-07-06 12:06:54,439 - sqlalchemy.engine.Engine - INFO - [generated in 0.00259s] ('WAITING', datetime.date(2025, 7, 6), UUID('faff1b64-5a04-42fa-bddc-458da0ada955'))      
+Estimated wait time: 45
+Queue values: {'appointment_id': UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'), 'patient_id': UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'), 'queue_number': 17, 'priority_score': 100, 'status': <QueueStatus.WAITING: 'waiting'>, 'estimated_wait_time': 45, 'doctor_id': UUID('faff1b64-5a04-42fa-bddc-458da0ada955')}
+2025-07-06 12:06:54,450 INFO sqlalchemy.engine.Engine INSERT INTO queue (id, appointment_id, patient_id, doctor_id, queue_number, priority_score, status, estimated_wait_time) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING queue.id, queue.appointment_id, queue.patient_id, queue.doctor_id, queue.queue_number, queue.priority_score, queue.status, 
+queue.estimated_wait_time, queue.called_at, queue.served_at, queue.created_at, queue.updated_at
+2025-07-06 12:06:54,450 - sqlalchemy.engine.Engine - INFO - INSERT INTO queue (id, appointment_id, patient_id, doctor_id, queue_number, priority_score, status, estimated_wait_time) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING queue.id, queue.appointment_id, queue.patient_id, queue.doctor_id, queue.queue_number, queue.priority_score, queue.status, queue.estimated_wait_time, queue.called_at, queue.served_at, queue.created_at, queue.updated_at
+2025-07-06 12:06:54,453 INFO sqlalchemy.engine.Engine [generated in 0.00293s] (UUID('3cb2657f-d185-46db-a9c0-d806110d7781'), UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'), UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'), UUID('faff1b64-5a04-42fa-bddc-458da0ada955'), 17, 100, 'WAITING', 45)
+2025-07-06 12:06:54,453 - sqlalchemy.engine.Engine - INFO - [generated in 0.00293s] (UUID('3cb2657f-d185-46db-a9c0-d806110d7781'), UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'), UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'), UUID('faff1b64-5a04-42fa-bddc-458da0ada955'), 17, 100, 'WAITING', 45)
+Error during queue insert: 'asyncpg.pgproto.pgproto.UUID' object has no attribute 'id' 
+2025-07-06 12:06:54,457 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-07-06 12:06:54,457 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+Trying simplified insert: {'appointment_id': UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'), 'queue_number': 17, 'priority_score': 100, 'status': 'waiting', 'estimated_wait_time': 45}
+2025-07-06 12:06:54,462 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-07-06 12:06:54,462 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-07-06 12:06:54,463 INFO sqlalchemy.engine.Engine INSERT INTO queue (id, appointment_id, queue_number, priority_score, status, estimated_wait_time) VALUES (%s, %s, %s, %s, %s, %s) RETURNING queue.id
+2025-07-06 12:06:54,463 - sqlalchemy.engine.Engine - INFO - INSERT INTO queue (id, appointment_id, queue_number, priority_score, status, estimated_wait_time) VALUES (%s, %s, 
+%s, %s, %s, %s) RETURNING queue.id
+2025-07-06 12:06:54,465 INFO sqlalchemy.engine.Engine [generated in 0.00129s] (UUID('a5fa5c7b-b83e-4cfc-9b4b-c7f39428dcfa'), UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'), 17, 100, 'WAITING', 45)
+2025-07-06 12:06:54,465 - sqlalchemy.engine.Engine - INFO - [generated in 0.00129s] (UUID('a5fa5c7b-b83e-4cfc-9b4b-c7f39428dcfa'), UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'), 17, 100, 'WAITING', 45)
+2025-07-06 12:06:54,467 INFO sqlalchemy.engine.Engine COMMIT
+2025-07-06 12:06:54,467 - sqlalchemy.engine.Engine - INFO - COMMIT
+2025-07-06 12:06:54,470 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-07-06 12:06:54,470 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-07-06 12:06:54,476 INFO sqlalchemy.engine.Engine SELECT queue.id, queue.appointment_id, queue.patient_id, queue.doctor_id, queue.queue_number, queue.priority_score, queue.status, queue.estimated_wait_time, queue.called_at, queue.served_at, queue.created_at, queue.updated_at
+FROM queue
+WHERE queue.id = %s
+2025-07-06 12:06:54,476 - sqlalchemy.engine.Engine - INFO - SELECT queue.id, queue.appointment_id, queue.patient_id, queue.doctor_id, queue.queue_number, queue.priority_score, queue.status, queue.estimated_wait_time, queue.called_at, queue.served_at, queue.created_at, queue.updated_at
+FROM queue
+WHERE queue.id = %s
+2025-07-06 12:06:54,478 INFO sqlalchemy.engine.Engine [generated in 0.00183s] (UUID('a5fa5c7b-b83e-4cfc-9b4b-c7f39428dcfa'),)
+2025-07-06 12:06:54,478 - sqlalchemy.engine.Engine - INFO - [generated in 0.00183s] (UUID('a5fa5c7b-b83e-4cfc-9b4b-c7f39428dcfa'),)
+2025-07-06 12:06:54,480 INFO sqlalchemy.engine.Engine SELECT appointments.id AS appointments_id, appointments.patient_id AS appointments_patient_id, appointments.doctor_id AS appointments_doctor_id, appointments.created_by AS appointments_created_by, appointments.appointment_date AS appointments_appointment_date, appointments.reason AS appointments_reason, appointments.urgency AS appointments_urgency, appointments.status AS appointments_status, appointments.notes AS appointments_notes, appointments.created_at AS appointments_created_at, appointments.updated_at AS appointments_updated_at
+FROM appointments
+WHERE appointments.id IN (%s)
+2025-07-06 12:06:54,480 - sqlalchemy.engine.Engine - INFO - SELECT appointments.id AS appointments_id, appointments.patient_id AS appointments_patient_id, appointments.doctor_id AS appointments_doctor_id, appointments.created_by AS appointments_created_by, appointments.appointment_date AS appointments_appointment_date, appointments.reason AS appointments_reason, appointments.urgency AS appointments_urgency, appointments.status AS appointments_status, appointments.notes AS appointments_notes, appointments.created_at AS appointments_created_at, appointments.updated_at AS appointments_updated_at
+FROM appointments
+WHERE appointments.id IN (%s)
+2025-07-06 12:06:54,486 INFO sqlalchemy.engine.Engine [generated in 0.00333s] (UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'),)
+2025-07-06 12:06:54,486 - sqlalchemy.engine.Engine - INFO - [generated in 0.00333s] (UUID('6eab8517-cbe3-4d49-9571-6a4e279e7899'),)
+2025-07-06 12:06:54,490 INFO sqlalchemy.engine.Engine SELECT patients.id AS patients_id, patients.phone_number AS patients_phone_number, patients.password_hash AS patients_password_hash, patients.first_name AS patients_first_name, patients.last_name AS patients_last_name, patients.date_of_birth AS patients_date_of_birth, patients.gender AS patients_gender, patients.email AS patients_email, patients.address AS patients_address, patients.emergency_contact AS patients_emergency_contact, patients.emergency_contact_name AS patients_emergency_contact_name, patients.emergency_contact_relationship AS patients_emergency_contact_relationship, patients.is_active AS patients_is_active, patients.created_at AS patients_created_at, patients.updated_at AS patients_updated_at
+FROM patients
+WHERE patients.id IN (%s)
+2025-07-06 12:06:54,490 - sqlalchemy.engine.Engine - INFO - SELECT patients.id AS patients_id, patients.phone_number AS patients_phone_number, patients.password_hash AS patients_password_hash, patients.first_name AS patients_first_name, patients.last_name AS patients_last_name, patients.date_of_birth AS patients_date_of_birth, patients.gender AS 
+patients_gender, patients.email AS patients_email, patients.address AS patients_address, patients.emergency_contact AS patients_emergency_contact, patients.emergency_contact_name AS patients_emergency_contact_name, patients.emergency_contact_relationship AS patients_emergency_contact_relationship, patients.is_active AS patients_is_active, patients.created_at AS patients_created_at, patients.updated_at AS patients_updated_at        
+FROM patients
+WHERE patients.id IN (%s)
+2025-07-06 12:06:54,496 INFO sqlalchemy.engine.Engine [generated in 0.00542s] (UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'),)
+2025-07-06 12:06:54,496 - sqlalchemy.engine.Engine - INFO - [generated in 0.00542s] (UUID('aea8b4e7-92ea-4735-ba4c-0338a4788343'),)
+2025-07-06 12:06:54,500 INFO sqlalchemy.engine.Engine SELECT doctors.id AS doctors_id, 
+doctors.user_id AS doctors_user_id, doctors.specialization AS doctors_specialization, doctors.license_number AS doctors_license_number, doctors.department AS doctors_department, doctors.consultation_fee AS doctors_consultation_fee, doctors.is_available AS doctors_is_available, doctors.shift_start AS doctors_shift_start, doctors.shift_end AS doctors_shift_end, doctors.bio AS doctors_bio, doctors.education AS doctors_education, doctors.experience AS doctors_experience
+FROM doctors
+WHERE doctors.id IN (%s)
+2025-07-06 12:06:54,500 - sqlalchemy.engine.Engine - INFO - SELECT doctors.id AS doctors_id, doctors.user_id AS doctors_user_id, doctors.specialization AS doctors_specialization, doctors.license_number AS doctors_license_number, doctors.department AS doctors_department, doctors.consultation_fee AS doctors_consultation_fee, doctors.is_available AS doctors_is_available, doctors.shift_start AS doctors_shift_start, doctors.shift_end AS doctors_shift_end, doctors.bio AS doctors_bio, doctors.education AS doctors_education, doctors.experience AS doctors_experience
+FROM doctors
+WHERE doctors.id IN (%s)
+2025-07-06 12:06:54,502 INFO sqlalchemy.engine.Engine [generated in 0.00210s] (UUID('faff1b64-5a04-42fa-bddc-458da0ada955'),)
+2025-07-06 12:06:54,502 - sqlalchemy.engine.Engine - INFO - [generated in 0.00210s] (UUID('faff1b64-5a04-42fa-bddc-458da0ada955'),)
+2025-07-06 12:06:54,508 INFO sqlalchemy.engine.Engine SELECT users.id AS users_id, users.username AS users_username, users.password_hash AS users_password_hash, users.email AS users_email, users.first_name AS users_first_name, users.last_name AS users_last_name, users.role AS users_role, users.is_active AS users_is_active, users.created_at AS users_created_at, users.updated_at AS users_updated_at
+FROM users
+WHERE users.id = %s
+2025-07-06 12:06:54,508 - sqlalchemy.engine.Engine - INFO - SELECT users.id AS users_id, users.username AS users_username, users.password_hash AS users_password_hash, users.email AS users_email, users.first_name AS users_first_name, users.last_name AS users_last_name, users.role AS users_role, users.is_active AS users_is_active, users.created_at 
+AS users_created_at, users.updated_at AS users_updated_at
+FROM users
+WHERE users.id = %s
+2025-07-06 12:06:54,517 INFO sqlalchemy.engine.Engine [generated in 0.00688s] (UUID('b002cd80-2683-46f1-8ebc-119d1e17fbb7'),)
+2025-07-06 12:06:54,517 - sqlalchemy.engine.Engine - INFO - [generated in 0.00688s] (UUID('b002cd80-2683-46f1-8ebc-119d1e17fbb7'),)
+2025-07-06 12:06:54,519 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-07-06 12:06:54,519 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+2025-07-06 12:06:54,525 - main - ERROR - Unhandled exception: 1 validation errors:
+  {'type': 'get_attribute_error', 'loc': ('response', 'doctor', 'user'), 'msg': "Error 
+extracting attribute: MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/14/xd2s)", 'input': <models.Doctor object at 0x000001DFD2E75E20>, 'ctx': {'error': "MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/14/xd2s)"}}
+  + Exception Group Traceback (most recent call last):
+  |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_utils.py", line 76, in collapse_excgroups
+  |     yield
+  |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 177, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 176, in __call__
+    |     with recv_stream, send_stream, collapse_excgroups():
+    |                                    ^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\AppData\Local\Programs\Python\Python312\Lib\contextlib.py", line 158, in __exit__
+    |     self.gen.throw(value)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    |     raise exc
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 178, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\main.py", line 58, in log_requests
+    |     response = await call_next(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 156, in call_next
+    |     raise app_exc
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 141, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)     
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 714, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 76, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)       
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 73, in app
+    |     response = await f(request)
+    |                ^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\fastapi\routing.py", line 327, in app
+    |     content = await serialize_response(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\fastapi\routing.py", line 176, in serialize_response
+    |     raise ResponseValidationError(
+    | fastapi.exceptions.ResponseValidationError: 1 validation errors:
+    |   {'type': 'get_attribute_error', 'loc': ('response', 'doctor', 'user'), 'msg': "Error extracting attribute: MissingGreenlet: greenlet_spawn has not been called; can't 
+call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/14/xd2s)", 'input': <models.Doctor object at 0x000001DFD2E75E20>, 'ctx': {'error': "MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/14/xd2s)"}}
+    |
+    +------------------------------------
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 176, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\AppData\Local\Programs\Python\Python312\Lib\contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    raise exc
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 178, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\main.py", line 
+58, in log_requests
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 156, in call_next
+    raise app_exc
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 141, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 714, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 734, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 73, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\fastapi\routing.py", line 327, in app
+    content = await serialize_response(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\fastapi\routing.py", line 176, in serialize_response
+    raise ResponseValidationError(
+fastapi.exceptions.ResponseValidationError: 1 validation errors:
+  {'type': 'get_attribute_error', 'loc': ('response', 'doctor', 'user'), 'msg': "Error 
+extracting attribute: MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/14/xd2s)", 'input': <models.Doctor object at 0x000001DFD2E75E20>, 'ctx': {'error': "MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/14/xd2s)"}}
+
+INFO:     10.31.110.150:34194 - "POST /api/v1/patient/appointments HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+  + Exception Group Traceback (most recent call last):
+  |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_utils.py", line 76, in collapse_excgroups
+  |     yield
+  |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 177, in __call__
+  |     async with anyio.create_task_group() as task_group:
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 435, in run_asgi        
+    |     result = await app(  # type: ignore[func-returns-value]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 78, in __call__
+    |     return await self.app(scope, receive, send)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    |     await super().__call__(scope, receive, send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\applications.py", line 112, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    |     raise exc
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    |     await self.app(scope, receive, _send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 176, in __call__
+    |     with recv_stream, send_stream, collapse_excgroups():
+    |                                    ^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\AppData\Local\Programs\Python\Python312\Lib\contextlib.py", line 158, in __exit__
+    |     self.gen.throw(value)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    |     raise exc
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 178, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\main.py", line 58, in log_requests
+    |     response = await call_next(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 156, in call_next
+    |     raise app_exc
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 141, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)     
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 714, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+    |     await self.app(scope, receive, send)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 76, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)       
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 73, in app
+    |     response = await f(request)
+    |                ^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\fastapi\routing.py", line 327, in app
+    |     content = await serialize_response(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\fastapi\routing.py", line 176, in serialize_response
+    |     raise ResponseValidationError(
+    | fastapi.exceptions.ResponseValidationError: 1 validation errors:
+    |   {'type': 'get_attribute_error', 'loc': ('response', 'doctor', 'user'), 'msg': "Error extracting attribute: MissingGreenlet: greenlet_spawn has not been called; can't 
+call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/14/xd2s)", 'input': <models.Doctor object at 0x000001DFD2E75E20>, 'ctx': {'error': "MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/14/xd2s)"}}
+    |
+    +------------------------------------
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 435, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 78, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\fastapi\applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\applications.py", line 112, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 187, in __call__
+    raise exc
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 165, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 176, in __call__
+    with recv_stream, send_stream, collapse_excgroups():
+                                   ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\AppData\Local\Programs\Python\Python312\Lib\contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_utils.py", line 82, in collapse_excgroups
+    raise exc
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 178, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\main.py", line 
+58, in log_requests
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 156, in call_next
+    raise app_exc
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 141, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 62, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 714, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 734, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 288, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 76, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\starlette\routing.py", line 73, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\fastapi\routing.py", line 327, in app
+    content = await serialize_response(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\piuse\Desktop\Hospital_Queue_Management_System\backend\.venv\Lib\site-packages\fastapi\routing.py", line 176, in serialize_response
+    raise ResponseValidationError(
+fastapi.exceptions.ResponseValidationError: 1 validation errors:
+  {'type': 'get_attribute_error', 'loc': ('response', 'doctor', 'user'), 'msg': "Error 
+extracting attribute: MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/14/xd2s)", 'input': <models.Doctor object at 0x000001DFD2E75E20>, 'ctx': {'error': "MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/14/xd2s)"}}

@@ -301,7 +301,10 @@ async def get_patient_appointments(
         
         result = await db.execute(
             select(Appointment)
-            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .options(
+                selectinload(Appointment.patient), 
+                selectinload(Appointment.doctor).selectinload(Doctor.user)
+            )
             .where(Appointment.patient_id == current_patient.id)
             .order_by(Appointment.appointment_date.desc())
             .offset(offset)
@@ -338,7 +341,10 @@ async def get_appointment_details(
     try:
         result = await db.execute(
             select(Appointment)
-            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .options(
+                selectinload(Appointment.patient), 
+                selectinload(Appointment.doctor).selectinload(Doctor.user)
+            )
             .where(
                 Appointment.id == appointment_id,
                 Appointment.patient_id == current_patient.id
@@ -752,18 +758,6 @@ async def create_appointment(
         }
         
         # Automatically assign a doctor with the least queue
-        # Create a temporary appointment object to pass to assign_available_doctor
-        temp_appointment = Appointment(
-            id=UUID(str(uuid.uuid4())),
-            patient_id=current_patient.id,
-            doctor_id=None,
-            appointment_date=appointment_data.appointment_date or datetime.utcnow(),
-            reason=appointment_data.reason or "General consultation",
-            urgency=urgency,
-            status=AppointmentStatus.SCHEDULED,
-            created_by=None
-        )
-        
         # Extract department preference from appointment reason if available
         preferred_department = None
         if appointment_data.reason:
@@ -776,13 +770,22 @@ async def create_appointment(
             elif "emergency" in appointment_data.reason.lower() or "urgent" in appointment_data.reason.lower():
                 preferred_department = "Emergency"
         
+        # Create a temporary appointment object for doctor assignment
+        temp_appointment = Appointment()
+        temp_appointment.patient_id = current_patient.id
+        temp_appointment.doctor_id = None
+        temp_appointment.appointment_date = appointment_data.appointment_date or datetime.utcnow()
+        temp_appointment.reason = appointment_data.reason or "General consultation"
+        temp_appointment.urgency = urgency
+        temp_appointment.status = AppointmentStatus.SCHEDULED
+        
         doctor_id = await QueueService.assign_available_doctor(db, temp_appointment, preferred_department)
         if doctor_id:
             appointment_obj["doctor_id"] = doctor_id
             
             # Get doctor name for notification
             result = await db.execute(
-                select(Doctor).join(User, Doctor.user_id == User.id).where(Doctor.id == doctor_id)
+                select(Doctor, User).join(User, Doctor.user_id == User.id).where(Doctor.id == doctor_id)
             )
             doctor_data = result.first()
             doctor_name = None
@@ -800,7 +803,10 @@ async def create_appointment(
         # Re-fetch the appointment with relationships loaded
         result = await db.execute(
             select(Appointment)
-            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .options(
+                selectinload(Appointment.patient),
+                selectinload(Appointment.doctor).selectinload(Doctor.user)
+            )
             .where(Appointment.id == appointment_id)
         )
         appointment = result.scalar_one()
@@ -897,7 +903,10 @@ async def cancel_appointment(
         # Re-fetch the appointment with relationships loaded
         result = await db.execute(
             select(Appointment)
-            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .options(
+                selectinload(Appointment.patient), 
+                selectinload(Appointment.doctor).selectinload(Doctor.user)
+            )
             .where(Appointment.id == appointment_id)
         )
         appointment = result.scalar_one()
