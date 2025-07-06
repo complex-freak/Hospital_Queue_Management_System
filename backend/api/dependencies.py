@@ -80,6 +80,7 @@ require_admin = RoleChecker([UserRole.ADMIN])
 require_staff = RoleChecker([UserRole.ADMIN, UserRole.STAFF, UserRole.RECEPTIONIST])
 require_doctor = RoleChecker([UserRole.ADMIN, UserRole.DOCTOR])
 require_admin_or_staff = RoleChecker([UserRole.ADMIN, UserRole.STAFF, UserRole.RECEPTIONIST])
+require_staff_or_doctor = RoleChecker([UserRole.ADMIN, UserRole.STAFF, UserRole.RECEPTIONIST, UserRole.DOCTOR])
 
 
 async def log_audit_event(

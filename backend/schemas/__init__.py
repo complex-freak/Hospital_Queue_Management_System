@@ -56,8 +56,9 @@ class PatientCreate(BaseModel):
             raise ValueError('Password must contain at least one uppercase letter')
         if not any(c.islower() for c in v):
             raise ValueError('Password must contain at least one lowercase letter')
-        if not any(c.isdigit() for c in v):
-            raise ValueError('Password must contain at least one digit')
+        # Digit requirement is now optional for patients
+        # if not any(c.isdigit() for c in v):
+        #     raise ValueError('Password must contain at least one digit')
         return v
 
 

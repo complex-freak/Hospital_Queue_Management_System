@@ -459,8 +459,9 @@ class QueueService:
             if not queue_entry:
                 raise ValueError("Queue entry not found")
             
-            if queue_entry.status != QueueStatus.SERVING:
-                raise ValueError("Can only skip patients currently in progress")
+            # Allow skipping patients who are waiting, called, or currently being served
+            if queue_entry.status not in [QueueStatus.WAITING, QueueStatus.CALLED, QueueStatus.SERVING]:
+                raise ValueError(f"Cannot skip patient with status: {queue_entry.status}")
             
             queue_entry.status = QueueStatus.NO_SHOW
             # Note: Queue model doesn't have a notes field, so we skip setting it

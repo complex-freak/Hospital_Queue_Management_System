@@ -21,7 +21,7 @@ from schemas import (
     ConsultationFeedback, ConsultationFeedbackCreate, ConsultationFeedbackUpdate,
     DoctorStatusUpdate,
     DoctorProfileUpdate,
-    Notification
+    Notification, NotificationCreate
 )
 from services import NotificationService, AuthService, DoctorService
 from services.queue_service import QueueService
@@ -532,42 +532,75 @@ async def get_patient_details(
     db: AsyncSession = Depends(get_db)
 ):
     """Get patient details for doctor view"""
+    logger.info(f"Starting get_patient_details for patient {patient_id}")
     try:
         # Get doctor info
+        logger.info(f"Fetching doctor info for user {current_user.id}")
         result = await db.execute(
             select(Doctor).where(Doctor.user_id == current_user.id)
         )
         doctor = result.scalar_one_or_none()
         
         if not doctor:
+            logger.error(f"Doctor profile not found for user {current_user.id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Doctor profile not found"
             )
         
-        # Verify patient has appointment with this doctor
+        logger.info(f"Found doctor: {doctor.id}")
+        
+        # Get patient details directly - doctors should be able to view any patient
+        logger.info(f"Fetching patient {patient_id}")
         result = await db.execute(
-            select(Patient, Appointment)
-            .join(Appointment, Patient.id == Appointment.patient_id)
-            .where(
-                and_(
-                    Patient.id == patient_id,
-                    Appointment.doctor_id == doctor.id
-                )
-            )
+            select(Patient).where(Patient.id == patient_id)
         )
         
-        patient_data = result.first()
-        if not patient_data:
+        patient = result.scalar_one_or_none()
+        if not patient:
+            logger.error(f"Patient {patient_id} not found in database")
+            
+            # Check if there are any patients at all
+            count_result = await db.execute(select(func.count(Patient.id)))
+            total_patients = count_result.scalar()
+            logger.info(f"Total patients in database: {total_patients}")
+            
+            # Get a few sample patient IDs for debugging
+            if total_patients > 0:
+                sample_result = await db.execute(
+                    select(Patient.id, Patient.first_name, Patient.last_name)
+                    .limit(3)
+                )
+                sample_patients = sample_result.all()
+                logger.info(f"Sample patients: {[(str(p.id), f'{p.first_name} {p.last_name}') for p in sample_patients]}")
+            
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Patient not found or not assigned to this doctor"
+                detail=f"Patient with ID {patient_id} not found. Please check if the patient exists or if the ID is correct."
             )
         
-        patient, _ = patient_data
-        return PatientSchema.model_validate(patient)
+        logger.info(f"Found patient: {patient.id}")
         
+        logger.info("Validating patient with PatientSchema")
+        try:
+            validated_patient = PatientSchema.model_validate(patient)
+            logger.info(f"Successfully validated patient: {validated_patient.id}")
+            return validated_patient
+        except Exception as validation_error:
+            logger.error(f"Validation error: {str(validation_error)}")
+            logger.error(f"Validation error type: {type(validation_error)}")
+            import traceback
+            logger.error(f"Validation traceback: {traceback.format_exc()}")
+            raise
+        
+    except HTTPException:
+        logger.info("Re-raising HTTPException")
+        raise
     except Exception as e:
+        logger.error(f"Unexpected error in get_patient_details: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch patient details"
@@ -1348,6 +1381,39 @@ async def update_doctor_profile(
             detail=f"Failed to update doctor profile: {str(e)}"
         )
 
+@router.post("/notifications", response_model=Notification)
+async def create_notification(
+    notification_data: NotificationCreate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_doctor),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create and send a notification (doctor access)"""
+    try:
+        notification_service = NotificationService()
+        notification = await notification_service.create_notification(db, notification_data)
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="create",
+            resource="notification",
+            resource_id=notification.id,
+            details=f"Doctor {current_user.username} created notification for {notification.recipient}"
+        )
+        
+        return notification
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create notification: {str(e)}"
+        )
+
+
 @router.post("/patients/{patient_id}/notify", response_model=Notification)
 async def notify_patient(
     patient_id: UUID,
@@ -1371,23 +1437,16 @@ async def notify_patient(
                 detail="Doctor profile not found"
             )
         
-        # Verify patient exists and is assigned to this doctor
+        # Verify patient exists - doctors should be able to notify any patient
         result = await db.execute(
-            select(Patient)
-            .join(Appointment, Patient.id == Appointment.patient_id)
-            .where(
-                and_(
-                    Patient.id == patient_id,
-                    Appointment.doctor_id == doctor.id
-                )
-            )
+            select(Patient).where(Patient.id == patient_id)
         )
         
         patient = result.scalar_one_or_none()
         if not patient:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Patient not found or not assigned to this doctor"
+                detail="Patient not found"
             )
         
         # Create and send notification using static method

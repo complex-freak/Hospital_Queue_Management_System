@@ -22,7 +22,7 @@ from schemas import (
 from services.queue_service import QueueService
 from services import NotificationService
 from services import AuthService, AppointmentService, PatientService
-from api.dependencies import require_staff, log_audit_event
+from api.dependencies import require_staff, require_staff_or_doctor, log_audit_event
 from api.core.security import create_access_token
 from api.core.config import settings
 from pydantic import BaseModel
@@ -1345,16 +1345,33 @@ async def cancel_appointment(
 
 @router.post("/notifications", response_model=Notification)
 async def create_notification(
-    notification_data: NotificationCreate,
+    notification_data: dict,
     request: Request,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_staff_or_doctor),
     db: AsyncSession = Depends(get_db)
 ):
     """Create and send a notification"""
     try:
+        # Handle frontend data format that sends patient_id instead of recipient
+        if "patient_id" in notification_data and "recipient" not in notification_data:
+            # Get patient phone number as recipient
+            patient_result = await db.execute(
+                select(Patient).where(Patient.id == notification_data["patient_id"])
+            )
+            patient = patient_result.scalar_one_or_none()
+            if patient:
+                notification_data["recipient"] = patient.phone_number
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Patient not found"
+                )
+        
+        # Convert to NotificationCreate schema
+        notification_create = NotificationCreate(**notification_data)
         notification_service = NotificationService()
-        notification = await notification_service.create_notification(db, notification_data)
+        notification = await notification_service.create_notification(db, notification_create)
         
         # Send notification based on type
         if notification.type == NotificationType.SMS:
@@ -1424,7 +1441,7 @@ async def create_bulk_notifications(
     bulk_data: NotificationBulkCreate,
     request: Request,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_staff_or_doctor),
     db: AsyncSession = Depends(get_db)
 ):
     """Create and send multiple notifications"""
@@ -1459,7 +1476,7 @@ async def create_bulk_notifications(
 async def get_notifications(
     skip: int = 0,
     limit: int = 50,
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_staff_or_doctor),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all notifications"""
@@ -1477,7 +1494,7 @@ async def get_patient_notifications(
     patient_id: UUID,
     skip: int = 0,
     limit: int = 50,
-    current_user: User = Depends(require_staff),
+    current_user: User = Depends(require_staff_or_doctor),
     db: AsyncSession = Depends(get_db)
 ):
     """Get notifications for a specific patient"""
