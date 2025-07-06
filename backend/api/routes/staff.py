@@ -52,8 +52,7 @@ async def register_patient_by_staff(
             action="register",
             resource="patient",
             resource_id=patient.id,
-            details=f"Staff {current_user.username} registered patient {patient.phone_number}",
-            db=db
+            details=f"Staff {current_user.username} registered patient {patient.phone_number}"
         )
         
         return patient
@@ -141,8 +140,7 @@ async def create_appointment(
             action="create",
             resource="appointment",
             resource_id=appointment.id,
-            details=f"Staff {current_user.username} created appointment for patient {patient.phone_number}",
-            db=db
+            details=f"Staff {current_user.username} created appointment for patient {patient.phone_number}"
         )
         
         # Add to queue
@@ -151,12 +149,18 @@ async def create_appointment(
             print(f"Added to queue with ID: {queue_entry.id}")
             
             # Send notification to patient
+            async def send_notification_task(patient, appointment, queue_number):
+                from database import AsyncSessionLocal
+                async with AsyncSessionLocal() as db:  # type: ignore
+                    await NotificationService.notify_appointment_booked(
+                        db, patient, appointment, queue_number
+                    )
+            
             background_tasks.add_task(
-                NotificationService.notify_appointment_booked,
-                db=db,
-                patient=patient,
-                appointment=appointment,
-                queue_number=queue_entry.queue_number
+                send_notification_task,
+                patient,
+                appointment,
+                queue_entry.queue_number
             )
         except Exception as queue_error:
             print(f"Error adding to queue: {str(queue_error)}")
@@ -267,8 +271,7 @@ async def update_appointment(
             action="update",
             resource="appointment",
             resource_id=appointment.id,
-            details=f"Staff {current_user.username} updated appointment {appointment_id}",
-            db=db
+            details=f"Staff {current_user.username} updated appointment {appointment_id}"
         )
         
         # Convert to Pydantic schema to avoid MissingGreenlet issues
@@ -294,20 +297,65 @@ async def get_queue_status(
 ):
     """Get current queue status"""
     try:
-        # Get all queue entries for today
+        # Get all queue entries for today with relationships
         result = await db.execute(
-            select(Queue)
-            .options(
-                selectinload(Queue.appointment).selectinload(Appointment.patient),
-                selectinload(Queue.appointment).selectinload(Appointment.doctor)
-            )
+            select(Queue, Appointment, Patient)
+            .join(Appointment, Queue.appointment_id == Appointment.id)
+            .join(Patient, Appointment.patient_id == Patient.id)
             .where(func.date(Queue.created_at) == func.current_date())
             .order_by(desc(Queue.priority_score), asc(Queue.queue_number))
         )
-        queue_entries = result.scalars().all()
-        # Convert to Pydantic schemas to avoid MissingGreenlet issues
-        return [QueueSchema.from_orm(queue_entry) for queue_entry in queue_entries]
+        
+        queue_entries = []
+        all_results = result.all()
+        
+        for queue, appointment, patient in all_results:
+            # Manually construct the queue entry with relationships
+            queue_entry = {
+                "id": str(queue.id),
+                "appointment_id": str(queue.appointment_id),
+                "queue_number": queue.queue_number,
+                "priority_score": queue.priority_score,
+                "status": queue.status.value if hasattr(queue.status, 'value') else str(queue.status),
+                "estimated_wait_time": queue.estimated_wait_time,
+                "called_at": queue.called_at.isoformat() if queue.called_at else None,
+                "served_at": queue.served_at.isoformat() if queue.served_at else None,
+                "created_at": queue.created_at.isoformat() if queue.created_at else None,
+                "updated_at": queue.updated_at.isoformat() if queue.updated_at else None,
+                "appointment": {
+                    "id": str(appointment.id),
+                    "patient_id": str(appointment.patient_id),
+                    "doctor_id": str(appointment.doctor_id) if appointment.doctor_id else None,
+                    "appointment_date": appointment.appointment_date.isoformat() if appointment.appointment_date else None,
+                    "urgency": appointment.urgency.value if hasattr(appointment.urgency, 'value') else str(appointment.urgency),
+                    "reason": appointment.reason,
+                    "status": appointment.status.value if hasattr(appointment.status, 'value') else str(appointment.status),
+                    "created_at": appointment.created_at.isoformat() if appointment.created_at else None,
+                    "updated_at": appointment.updated_at.isoformat() if appointment.updated_at else None,
+                    "patient": {
+                        "id": str(patient.id),
+                        "first_name": patient.first_name,
+                        "last_name": patient.last_name,
+                        "phone_number": patient.phone_number,
+                        "email": patient.email,
+                        "gender": patient.gender,
+                        "date_of_birth": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
+                        "address": patient.address,
+                        "emergency_contact": patient.emergency_contact,
+                        "emergency_contact_name": patient.emergency_contact_name,
+                        "emergency_contact_relationship": patient.emergency_contact_relationship,
+                        "is_active": patient.is_active,
+                        "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                        "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+                    }
+                }
+            }
+            queue_entries.append(queue_entry)
+        
+        return queue_entries
+        
     except Exception as e:
+        print(f"Error fetching queue status: {str(e)}")  # Add logging for debugging
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch queue status"
@@ -371,18 +419,22 @@ async def update_queue_entry(
             action="update",
             resource="queue",
             resource_id=queue_entry.id,
-            details=f"Staff {current_user.username} updated queue entry for appointment {appointment_id}",
-            db=db
+            details=f"Staff {current_user.username} updated queue entry for appointment {appointment_id}"
         )
         
         # If status changed, update queue positions and send notifications
         if "status" in queue_update.model_dump(exclude_unset=True):
             # Update queue positions and send notifications
+            async def update_queue_positions_task(doctor_id):
+                from database import AsyncSessionLocal
+                async with AsyncSessionLocal() as db:  # type: ignore
+                    await QueueService.update_queue_positions(
+                        db, doctor_id, notification_service=None
+                    )
+            
             background_tasks.add_task(
-                QueueService.update_queue_positions,
-                db=db,
-                doctor_id=queue_entry.doctor_id,
-                notification_service=None
+                update_queue_positions_task,
+                queue_entry.doctor_id
             )
         
         # Return data in format expected by frontend transformer
@@ -481,11 +533,17 @@ async def call_next_patient(
         await db.refresh(queue_entry)
         
         # Send notification to patient
+        async def send_turn_ready_notification(patient, queue_number):
+            from database import AsyncSessionLocal
+            async with AsyncSessionLocal() as db:  # type: ignore
+                await NotificationService.notify_turn_ready(
+                    db, patient, queue_number
+                )
+        
         background_tasks.add_task(
-            NotificationService.notify_turn_ready,
-            db=db,
-            patient=patient,
-            queue_number=queue_entry.queue_number
+            send_turn_ready_notification,
+            patient,
+            queue_entry.queue_number
         )
         
         # Log audit event
@@ -497,8 +555,7 @@ async def call_next_patient(
             action="update",
             resource="queue",
             resource_id=queue_id,
-            details=f"Staff {current_user.username} called patient {patient.phone_number}",
-            db=db
+            details=f"Staff {current_user.username} called patient {patient.phone_number}"
         )
         
         return {"message": "Patient called successfully"}
@@ -779,8 +836,7 @@ async def create_queue(
             action="create",
             resource="queue",
             resource_id=queue.id,
-            details=f"Staff {current_user.username} created queue",
-            db=db
+            details=f"Staff {current_user.username} created queue"
         )
         
         return queue
@@ -839,8 +895,7 @@ async def create_queue_entry(
             action="create",
             resource="queue_entry",
             resource_id=queue_entry.id,
-            details=f"Staff {current_user.username} added patient to queue",
-            db=db
+            details=f"Staff {current_user.username} added patient to queue"
         )
         
         return queue_entry
@@ -877,8 +932,7 @@ async def login_staff(
             user_type="user",
             action="login",
             resource="user",
-            details=f"Failed login attempt for staff username {login_data.username}",
-            db=db
+            details=f"Failed login attempt for staff username {login_data.username}"
         )
         
         raise HTTPException(
@@ -914,8 +968,7 @@ async def login_staff(
                     action="login",
         resource="user",
         resource_id=user.id,
-        details=f"Successful {user.role} login",
-        db=db
+        details=f"Successful {user.role} login"
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
@@ -938,8 +991,7 @@ async def logout_staff(
             action="logout",
             resource="user",
             resource_id=current_user.id,
-            details=f"{current_user.role} {current_user.username} logged out",
-            db=db
+            details=f"{current_user.role} {current_user.username} logged out"
         )
         
         return {"message": "Logged out successfully"}
@@ -1082,8 +1134,7 @@ async def update_appointment_priority(
             action="update",
             resource="appointment",
             resource_id=appointment.id,
-            details=f"Staff {current_user.username} updated priority for appointment {appointment_id}",
-            db=db
+            details=f"Staff {current_user.username} updated priority for appointment {appointment_id}"
         )
         
         return {
@@ -1099,6 +1150,97 @@ async def update_appointment_priority(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update appointment priority: {str(e)}"
+        )
+
+@router.patch("/appointments/{appointment_id}/assign")
+async def assign_patient_to_doctor(
+    appointment_id: UUID,
+    assign_data: dict,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_staff),
+    db: AsyncSession = Depends(get_db)
+):
+    """Assign a patient to a specific doctor"""
+    try:
+        result = await db.execute(
+            select(Appointment)
+            .options(selectinload(Appointment.queue_entry))
+            .where(Appointment.id == appointment_id)
+        )
+        appointment = result.scalar_one_or_none()
+        
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found"
+            )
+        
+        # Get doctor info
+        doctor_id = assign_data.get("doctor_id")
+        if not doctor_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="doctor_id is required"
+            )
+        
+        # Verify doctor exists
+        result = await db.execute(
+            select(Doctor).where(Doctor.id == doctor_id)
+        )
+        doctor = result.scalar_one_or_none()
+        
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Doctor not found"
+            )
+        
+        # Update appointment with new doctor
+        appointment.doctor_id = doctor_id
+        appointment.updated_at = get_timezone_aware_now()
+        
+        # If appointment is in queue, update queue entry
+        if appointment.queue_entry:
+            appointment.queue_entry.doctor_id = doctor_id
+            appointment.queue_entry.updated_at = get_timezone_aware_now()
+        
+        await db.commit()
+        
+        # Re-fetch the appointment with relationships loaded
+        result = await db.execute(
+            select(Appointment)
+            .options(selectinload(Appointment.patient), selectinload(Appointment.doctor))
+            .where(Appointment.id == appointment_id)
+        )
+        appointment = result.scalar_one()
+        
+        # Log audit event
+        background_tasks.add_task(
+            log_audit_event,
+            request=request,
+            user_id=current_user.id,
+            user_type="user",
+            action="update",
+            resource="appointment",
+            resource_id=appointment.id,
+            details=f"Staff {current_user.username} assigned appointment {appointment_id} to doctor {doctor_id}"
+        )
+        
+        return {
+            "id": str(appointment_id),
+            "doctor_id": str(doctor_id),
+            "assigned_at": appointment.updated_at.isoformat() if appointment.updated_at else None
+        }
+        
+    except HTTPException:
+        # Pass through the HTTP exception
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to assign patient to doctor: {str(e)}"
         )
 
 @router.post("/appointments/{appointment_id}/cancel")
@@ -1158,23 +1300,21 @@ async def cancel_appointment(
             action="update",
             resource="appointment",
             resource_id=appointment.id,
-            details=f"Staff {current_user.username} cancelled appointment {appointment_id}",
-            db=db
+            details=f"Staff {current_user.username} cancelled appointment {appointment_id}"
         )
         
         # Notify patient if needed
         if hasattr(appointment, 'patient') and appointment.patient:
             # Inline notification implementation
-            async def send_cancellation_notification(db, patient, reason):
-                await NotificationService.notify_appointment_cancelled(
-                    db=db,
-                    patient=patient,
-                    reason=reason
-                )
+            async def send_cancellation_notification(patient, reason):
+                from database import AsyncSessionLocal
+                async with AsyncSessionLocal() as db:  # type: ignore
+                    await NotificationService.notify_appointment_cancelled(
+                        db, patient, reason
+                    )
             
             background_tasks.add_task(
                 send_cancellation_notification,
-                db,
                 appointment.patient,
                 reason
             )
@@ -1260,8 +1400,7 @@ async def create_notification(
             action="create",
             resource="notification",
             resource_id=notification.id,
-            details=f"Staff {current_user.username} created notification for {notification.recipient}",
-            db=db
+            details=f"Staff {current_user.username} created notification for {notification.recipient}"
         )
         
         return notification
@@ -1297,8 +1436,7 @@ async def create_bulk_notifications(
             user_type="user",
             action="create",
             resource="notification",
-            details=f"Staff {current_user.username} created {len(notifications)} bulk notifications",
-            db=db
+            details=f"Staff {current_user.username} created {len(notifications)} bulk notifications"
         )
         
         return notifications
@@ -1378,8 +1516,7 @@ async def create_notification_template(
             action="create",
             resource="notification_template",
             resource_id=template.id,
-            details=f"Staff {current_user.username} created notification template '{template.name}'",
-            db=db
+            details=f"Staff {current_user.username} created notification template '{template.name}'"
         )
         
         return template
@@ -1459,8 +1596,7 @@ async def update_notification_template(
             action="update",
             resource="notification_template",
             resource_id=template.id,
-            details=f"Staff {current_user.username} updated notification template '{template.name}'",
-            db=db
+            details=f"Staff {current_user.username} updated notification template '{template.name}'"
         )
         
         return template
@@ -1498,8 +1634,7 @@ async def delete_notification_template(
             action="delete",
             resource="notification_template",
             resource_id=template_id,
-            details=f"Staff {current_user.username} deleted notification template",
-            db=db
+            details=f"Staff {current_user.username} deleted notification template"
         )
         
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -1537,8 +1672,7 @@ async def send_notification_from_template(
             action="create",
             resource="notification",
             resource_id=notification_id,
-            details=f"Staff {current_user.username} sent notification from template to {recipient}",
-            db=db
+            details=f"Staff {current_user.username} sent notification from template to {recipient}"
         )
         
         return notification

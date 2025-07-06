@@ -67,8 +67,7 @@ async def register_patient(
             action="register",
             resource="patient",
             resource_id=patient.id,
-            details=f"Patient registered with phone {patient.phone_number}",
-            db=db
+            details=f"Patient registered with phone {patient.phone_number}"
         )
         
         return patient
@@ -137,8 +136,7 @@ async def complete_patient_profile(
             action="update",
             resource="patient",
             resource_id=current_patient.id,
-            details=f"Patient completed profile with fields: {list(update_data.keys())}",
-            db=db
+            details=f"Patient completed profile with fields: {list(update_data.keys())}"
         )
         
         return current_patient
@@ -178,8 +176,7 @@ async def login_patient(
             user_type="patient",
             action="login_failed",
             resource="patient",
-            details=f"Failed login attempt for phone {login_data.phone_number}",
-            db=db
+            details=f"Failed login attempt for phone {login_data.phone_number}"
         )
         
         raise HTTPException(
@@ -208,8 +205,7 @@ async def login_patient(
         action="login",
         resource="patient",
         resource_id=patient.id,
-        details="Successful login",
-        db=db
+        details="Successful login"
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
@@ -260,8 +256,7 @@ async def update_patient_profile(
             action="update",
             resource="patient",
             resource_id=current_patient.id,
-            details=f"Updated fields: {list(update_data.keys())}",
-            db=db
+            details=f"Updated fields: {list(update_data.keys())}"
         )
         
         return current_patient
@@ -410,8 +405,7 @@ async def delete_patient_account(
             action="delete",
             resource="patient",
             resource_id=current_patient.id,
-            details="Patient account deactivated",
-            db=db
+            details="Patient account deactivated"
         )
         
         return {"message": "Account deactivated successfully"}
@@ -480,8 +474,7 @@ async def change_password(
             action="update",
             resource="patient",
             resource_id=current_patient.id,
-            details="Password changed successfully",
-            db=db
+            details="Password changed successfully"
         )
         
         return {"message": "Password changed successfully"}
@@ -795,8 +788,7 @@ async def create_appointment(
             action="create",
             resource="appointment",
             resource_id=appointment.id,
-            details=f"Patient created appointment",
-            db=db
+            details=f"Patient created appointment"
         )
         
         # Add to queue
@@ -893,8 +885,7 @@ async def cancel_appointment(
             action="delete",
             resource="appointment",
             resource_id=appointment.id,
-            details=f"Appointment cancelled by patient",
-            db=db
+            details=f"Appointment cancelled by patient"
         )
         
         return appointment

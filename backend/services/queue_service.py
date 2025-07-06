@@ -370,30 +370,37 @@ class QueueService:
         notes: Optional[str] = None
     ) -> Queue:
         """Update queue status"""
-        result = await db.execute(
-            select(Queue).where(Queue.id == queue_id)
-        )
-        queue_entry = result.scalar_one_or_none()
-        
-        if not queue_entry:
-            raise ValueError("Queue entry not found")
-        
-        queue_entry.status = status
-        if notes:
-            queue_entry.notes = notes
-        
-        now = get_timezone_aware_now()
-        if status == QueueStatus.SERVING:
-            queue_entry.served_at = now
-        elif status == QueueStatus.COMPLETED:
-            queue_entry.completed_at = now
-        
-        queue_entry.updated_at = now
-        
-        await db.commit()
-        await db.refresh(queue_entry)
-        
-        return queue_entry
+        try:
+            result = await db.execute(
+                select(Queue).where(Queue.id == queue_id)
+            )
+            queue_entry = result.scalar_one_or_none()
+            
+            if not queue_entry:
+                raise ValueError("Queue entry not found")
+            
+            queue_entry.status = status
+            # Note: Queue model doesn't have a notes field, so we skip setting it
+            
+            now = get_timezone_aware_now()
+            if status == QueueStatus.SERVING:
+                queue_entry.served_at = now
+            elif status == QueueStatus.COMPLETED:
+                # Use served_at for completion time since completed_at doesn't exist
+                queue_entry.served_at = now
+            
+            queue_entry.updated_at = now
+            
+            # Don't commit here - let the calling code handle the transaction
+            # await db.commit()
+            # await db.refresh(queue_entry)
+            
+            return queue_entry
+            
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Error updating queue status for queue_id {queue_id}: {str(e)}")
+            raise ValueError(f"Failed to update queue status: {str(e)}")
     
     @staticmethod
     async def call_next_patient(
@@ -401,33 +408,40 @@ class QueueService:
         doctor_id: UUID
     ) -> Optional[Queue]:
         """Call the next patient in queue for a doctor"""
-        # Get next patient in queue
-        result = await db.execute(
-            select(Queue).where(
-                and_(
-                    column("doctor_id") == doctor_id,
-                    Queue.status == QueueStatus.WAITING,
-                    func.date(column("created_at")) == date.today()
+        try:
+            # Get next patient in queue
+            result = await db.execute(
+                select(Queue).where(
+                    and_(
+                        column("doctor_id") == doctor_id,
+                        Queue.status == QueueStatus.WAITING,
+                        func.date(column("created_at")) == date.today()
+                    )
                 )
+                .order_by(column("priority_score").desc(), column("created_at").asc())
+                .limit(1)
             )
-            .order_by(column("priority_score").desc(), column("created_at").asc())
-            .limit(1)
-        )
-        next_patient = result.scalar_one_or_none()
-        
-        if not next_patient:
-            return None
-        
-        # Update status to in progress
-        now = get_timezone_aware_now()
-        next_patient.status = QueueStatus.SERVING
-        next_patient.served_at = now
-        next_patient.updated_at = now
-        
-        await db.commit()
-        await db.refresh(next_patient)
-        
-        return next_patient
+            next_patient = result.scalar_one_or_none()
+            
+            if not next_patient:
+                return None
+            
+            # Update status to in progress
+            now = get_timezone_aware_now()
+            next_patient.status = QueueStatus.SERVING
+            next_patient.served_at = now
+            next_patient.updated_at = now
+            
+            # Don't commit here - let the calling code handle the transaction
+            # await db.commit()
+            # await db.refresh(next_patient)
+            
+            return next_patient
+            
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Error calling next patient for doctor_id {doctor_id}: {str(e)}")
+            raise ValueError(f"Failed to call next patient: {str(e)}")
     
     @staticmethod
     async def skip_patient(
@@ -436,25 +450,32 @@ class QueueService:
         reason: str = "Patient not available"
     ) -> Queue:
         """Skip a patient in queue"""
-        result = await db.execute(
-            select(Queue).where(Queue.id == queue_id)
-        )
-        queue_entry = result.scalar_one_or_none()
-        
-        if not queue_entry:
-            raise ValueError("Queue entry not found")
-        
-        if queue_entry.status != QueueStatus.SERVING:
-            raise ValueError("Can only skip patients currently in progress")
-        
-        queue_entry.status = QueueStatus.NO_SHOW
-        queue_entry.notes = f"{queue_entry.notes or ''}\nSkipped: {reason}"
-        queue_entry.updated_at = get_timezone_aware_now()
-        
-        await db.commit()
-        await db.refresh(queue_entry)
-        
-        return queue_entry
+        try:
+            result = await db.execute(
+                select(Queue).where(Queue.id == queue_id)
+            )
+            queue_entry = result.scalar_one_or_none()
+            
+            if not queue_entry:
+                raise ValueError("Queue entry not found")
+            
+            if queue_entry.status != QueueStatus.SERVING:
+                raise ValueError("Can only skip patients currently in progress")
+            
+            queue_entry.status = QueueStatus.NO_SHOW
+            # Note: Queue model doesn't have a notes field, so we skip setting it
+            queue_entry.updated_at = get_timezone_aware_now()
+            
+            # Don't commit here - let the calling code handle the transaction
+            # await db.commit()
+            # await db.refresh(queue_entry)
+            
+            return queue_entry
+            
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Error skipping patient for queue_id {queue_id}: {str(e)}")
+            raise ValueError(f"Failed to skip patient: {str(e)}")
     
     @staticmethod
     async def reorder_queue(
@@ -462,31 +483,38 @@ class QueueService:
         queue_updates: List[Dict[str, Any]]
     ) -> List[Queue]:
         """Manually reorder queue entries"""
-        updated_entries = []
-        
-        for update in queue_updates:
-            queue_id = update.get('queue_id')
-            new_priority = update.get('priority_score')
+        try:
+            updated_entries = []
             
-            if not queue_id or new_priority is None:
-                continue
+            for update in queue_updates:
+                queue_id = update.get('queue_id')
+                new_priority = update.get('priority_score')
+                
+                if not queue_id or new_priority is None:
+                    continue
+                
+                result = await db.execute(
+                    select(Queue).where(Queue.id == queue_id)
+                )
+                queue_entry = result.scalar_one_or_none()
+                
+                if queue_entry and queue_entry.status == QueueStatus.WAITING:
+                    queue_entry.priority_score = new_priority
+                    queue_entry.updated_at = get_timezone_aware_now()
+                    updated_entries.append(queue_entry)
             
-            result = await db.execute(
-                select(Queue).where(Queue.id == queue_id)
-            )
-            queue_entry = result.scalar_one_or_none()
+            # Don't commit here - let the calling code handle the transaction
+            # if updated_entries:
+            #     await db.commit()
+            #     for entry in updated_entries:
+            #         await db.refresh(entry)
             
-            if queue_entry and queue_entry.status == QueueStatus.WAITING:
-                queue_entry.priority_score = new_priority
-                queue_entry.updated_at = get_timezone_aware_now()
-                updated_entries.append(queue_entry)
-        
-        if updated_entries:
-            await db.commit()
-            for entry in updated_entries:
-                await db.refresh(entry)
-        
-        return updated_entries
+            return updated_entries
+            
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Error reordering queue: {str(e)}")
+            raise ValueError(f"Failed to reorder queue: {str(e)}")
     
     @staticmethod
     async def get_queue_statistics(
@@ -545,25 +573,32 @@ class QueueService:
         reason: str = "Removed by staff"
     ) -> Queue:
         """Remove a patient from queue"""
-        result = await db.execute(
-            select(Queue).where(Queue.id == queue_id)
-        )
-        queue_entry = result.scalar_one_or_none()
-        
-        if not queue_entry:
-            raise ValueError("Queue entry not found")
-        
-        if queue_entry.status in [QueueStatus.COMPLETED, QueueStatus.CANCELLED]:
-            raise ValueError(f"Cannot remove queue entry with status: {queue_entry.status}")
-        
-        queue_entry.status = QueueStatus.CANCELLED
-        queue_entry.notes = f"{queue_entry.notes or ''}\nRemoved: {reason}"
-        queue_entry.updated_at = get_timezone_aware_now()
-        
-        await db.commit()
-        await db.refresh(queue_entry)
-        
-        return queue_entry
+        try:
+            result = await db.execute(
+                select(Queue).where(Queue.id == queue_id)
+            )
+            queue_entry = result.scalar_one_or_none()
+            
+            if not queue_entry:
+                raise ValueError("Queue entry not found")
+            
+            if queue_entry.status in [QueueStatus.COMPLETED, QueueStatus.CANCELLED]:
+                raise ValueError(f"Cannot remove queue entry with status: {queue_entry.status}")
+            
+            queue_entry.status = QueueStatus.CANCELLED
+            # Note: Queue model doesn't have a notes field, so we skip setting it
+            queue_entry.updated_at = get_timezone_aware_now()
+            
+            # Don't commit here - let the calling code handle the transaction
+            # await db.commit()
+            # await db.refresh(queue_entry)
+            
+            return queue_entry
+            
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Error removing from queue for queue_id {queue_id}: {str(e)}")
+            raise ValueError(f"Failed to remove from queue: {str(e)}")
     
     @staticmethod
     async def get_doctor_with_least_queue(db: AsyncSession) -> Optional[UUID]:

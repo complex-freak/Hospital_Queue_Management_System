@@ -55,8 +55,7 @@ async def mark_notification_read(
             action="update",
             resource="notification",
             resource_id=notification.id,
-            details=f"{user_type.capitalize()} marked notification as read",
-            db=db
+            details=f"{user_type.capitalize()} marked notification as read"
         )
         
         return notification
@@ -94,8 +93,7 @@ async def mark_all_notifications_read(
             user_type=user_type,
             action="update",
             resource="notification",
-            details=f"{user_type.capitalize()} marked {count} notifications as read",
-            db=db
+            details=f"{user_type.capitalize()} marked {count} notifications as read"
         )
         
         return {"message": f"Marked {count} notifications as read"}

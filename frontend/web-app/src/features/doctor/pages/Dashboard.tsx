@@ -9,15 +9,69 @@ import AppHeader from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
 import { RefreshCw } from 'lucide-react';
-import { Patient } from '@/types/patient';
+import { Patient as PatientType, PriorityLevel } from '@/types/patient';
+
+// Define the queue entry interface to match backend response
+interface QueueEntry {
+  id: string;
+  queue_number: number;
+  status: string;
+  created_at: string | null;
+  appointment?: {
+    id: string;
+    reason: string;
+    urgency: string;
+    created_at: string | null;
+    patient?: {
+      first_name: string;
+      last_name: string;
+    };
+  };
+}
+
+// Define the doctor profile interface
+interface DoctorProfile {
+  id: string;
+  user_id: string;
+  specialization: string;
+  department: string;
+  is_available: boolean;
+  shift_start?: string;
+  shift_end?: string;
+  bio?: string;
+  education?: string;
+  experience?: string;
+}
+
+// Extended interface for queue table data
+interface QueuePatient extends PatientType {
+  queue_number: number;
+  checkInTime: string | null;
+  priority: PriorityLevel;
+  status: string;
+}
+
+// Helper function to convert backend priority to PriorityLevel
+const convertPriority = (backendPriority: string): PriorityLevel => {
+  switch (backendPriority.toLowerCase()) {
+    case 'high':
+      return 'High';
+    case 'medium':
+      return 'Medium';
+    case 'low':
+      return 'Low';
+    default:
+      return 'Medium';
+  }
+};
 
 const Dashboard = () => {
   const { user } = useAuth();
-  const [patients, setPatients] = useState<Patient[]>([]);
+  const [patients, setPatients] = useState<QueuePatient[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isAvailable, setIsAvailable] = useState(true);
-  const [doctorProfile, setDoctorProfile] = useState<any>(null);
+  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState(0);
@@ -75,15 +129,16 @@ const Dashboard = () => {
             });
           }
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Only update state if component is still mounted
         if (!isComponentMounted.current) return;
         
         console.error('Error fetching doctor profile:', error);
         setProfileError('Failed to load doctor profile');
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load doctor profile';
         toast({
           title: 'Error',
-          description: error.message || 'Failed to load doctor profile',
+          description: errorMessage,
           variant: 'destructive',
         });
       }
@@ -130,7 +185,29 @@ const Dashboard = () => {
       if (!isComponentMounted.current) return;
       
       if (response.success) {
-        const newPatients = response.data || [];
+        const queueData = response.data || [];
+        // Transform backend data to match QueueTable interface
+        const newPatients = queueData.map((queueEntry: QueueEntry) => {
+          // Safely handle date values
+          const appointmentDate = queueEntry.appointment?.created_at;
+          const queueDate = queueEntry.created_at;
+          const checkInTime = appointmentDate || queueDate || null;
+          
+          // Safely handle name
+          const firstName = queueEntry.appointment?.patient?.first_name || '';
+          const lastName = queueEntry.appointment?.patient?.last_name || '';
+          const name = `${firstName} ${lastName}`.trim() || 'Unknown Patient';
+          
+          return {
+            id: queueEntry.id, // Use queue ID as the unique identifier
+            queue_number: queueEntry.queue_number || 0,
+            name: name,
+            reason: queueEntry.appointment?.reason || 'No reason provided',
+            checkInTime: checkInTime,
+            priority: convertPriority(queueEntry.appointment?.urgency || 'medium'),
+            status: queueEntry.status || 'waiting'
+          };
+        });
         setPatients(newPatients);
         
         // Adaptive polling based on queue activity
@@ -163,7 +240,7 @@ const Dashboard = () => {
           });
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Check if component is still mounted before updating state
       if (!isComponentMounted.current) return;
       
@@ -171,18 +248,19 @@ const Dashboard = () => {
       setError('Failed to load patient queue');
       // Don't show toast for background refreshes, only when manually refreshing
       if (isRefreshing) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load patient queue';
         toast({
           title: 'Error',
-          description: error.message || 'Failed to load patient queue',
+          description: errorMessage,
           variant: 'destructive',
         });
       }
     } finally {
       // Check if component is still mounted before updating state
-      if (!isComponentMounted.current) return;
-      
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (isComponentMounted.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, [isAvailable, lastFetchTime, isRefreshing]);
 
@@ -252,16 +330,16 @@ const Dashboard = () => {
     await fetchQueue();
   };
 
-  const handlePatientSeen = async (patientId: string) => {
+  const handlePatientSeen = async (queueId: string) => {
     try {
-      const response = await doctorService.markPatientSeen(patientId);
+      const response = await doctorService.markPatientSeen(queueId);
       
       // Check if component is still mounted before updating state
       if (!isComponentMounted.current) return;
       
       if (response.success) {
         // Remove the patient from the queue
-        setPatients(patients.filter(patient => patient.id !== patientId));
+        setPatients(patients.filter(patient => patient.id !== queueId));
         toast({
           title: 'Patient Marked as Seen',
           description: 'The patient has been removed from your queue.',
@@ -273,28 +351,29 @@ const Dashboard = () => {
           variant: 'destructive',
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Check if component is still mounted before showing toast
       if (!isComponentMounted.current) return;
       
+      const errorMessage = error instanceof Error ? error.message : 'Failed to mark patient as seen';
       toast({
         title: 'Error',
-        description: error.message || 'Failed to mark patient as seen',
+        description: errorMessage,
         variant: 'destructive',
       });
     }
   };
 
-  const handlePatientSkipped = async (patientId: string) => {
+  const handlePatientSkipped = async (queueId: string) => {
     try {
-      const response = await doctorService.skipPatient(patientId);
+      const response = await doctorService.skipPatient(queueId);
       
       // Check if component is still mounted before updating state
       if (!isComponentMounted.current) return;
       
       if (response.success) {
         // Remove the patient from the queue
-        setPatients(patients.filter(patient => patient.id !== patientId));
+        setPatients(patients.filter(patient => patient.id !== queueId));
         toast({
           title: 'Patient Skipped',
           description: 'The patient has been skipped in your queue.',
@@ -306,13 +385,14 @@ const Dashboard = () => {
           variant: 'destructive',
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Check if component is still mounted before showing toast
       if (!isComponentMounted.current) return;
       
+      const errorMessage = error instanceof Error ? error.message : 'Failed to skip patient';
       toast({
         title: 'Error',
-        description: error.message || 'Failed to skip patient',
+        description: errorMessage,
         variant: 'destructive',
       });
     }

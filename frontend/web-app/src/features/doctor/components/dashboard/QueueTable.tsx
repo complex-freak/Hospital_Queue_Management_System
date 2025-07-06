@@ -12,17 +12,18 @@ import { BadgeCheck, SkipForward, Bell, FileText, ClipboardList, RefreshCw } fro
 import PatientDetailsViewer from './PatientDetailsViewer';
 import ConsultationFeedbackForm from './ConsultationFeedbackForm';
 import QueueFilters, { QueueFiltersState } from './QueueFilters';
+import { Patient as PatientType, PriorityLevel } from '@/types/patient';
 
-interface Patient {
-  id: string;
-  name: string;
-  reason: string;
-  checkInTime: string;
-  priority: 'Low' | 'Medium' | 'High';
+// Extended interface for queue table data
+interface QueuePatient extends PatientType {
+  queue_number: number;
+  checkInTime: string | null;
+  priority: PriorityLevel;
+  status: string;
 }
 
 interface QueueTableProps {
-  patients: Patient[];
+  patients: QueuePatient[];
   isLoading: boolean;
   onPatientSeen: (id: string) => void;
   onPatientSkipped: (id: string) => void;
@@ -30,15 +31,48 @@ interface QueueTableProps {
 }
 
 const getPriorityClass = (priority: string) => {
-  switch (priority) {
-    case 'High':
+  switch (priority.toLowerCase()) {
+    case 'high':
       return 'bg-red-100 text-red-800 border-red-300';
-    case 'Medium':
+    case 'medium':
       return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-    case 'Low':
+    case 'low':
       return 'bg-green-100 text-green-800 border-green-300';
     default:
       return 'bg-gray-100 text-gray-800 border-gray-300';
+  }
+};
+
+// Helper function to safely format dates
+const formatDate = (dateString: string | null | undefined): string => {
+  if (!dateString) return 'N/A';
+  
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'N/A';
+    return format(date, 'h:mm a');
+  } catch (error) {
+    return 'N/A';
+  }
+};
+
+// Helper function to safely compare dates
+const compareDates = (dateA: string | null | undefined, dateB: string | null | undefined): number => {
+  try {
+    const date1 = dateA ? new Date(dateA) : null;
+    const date2 = dateB ? new Date(dateB) : null;
+    
+    if (!date1 && !date2) return 0;
+    if (!date1) return 1; // null dates go last
+    if (!date2) return -1;
+    
+    if (isNaN(date1.getTime()) && isNaN(date2.getTime())) return 0;
+    if (isNaN(date1.getTime())) return 1;
+    if (isNaN(date2.getTime())) return -1;
+    
+    return compareAsc(date1, date2);
+  } catch (error) {
+    return 0;
   }
 };
 
@@ -49,7 +83,7 @@ const QueueTable: React.FC<QueueTableProps> = ({
   onPatientSkipped,
   refreshQueue 
 }) => {
-  const [notificationPatient, setNotificationPatient] = useState<Patient | null>(null);
+  const [notificationPatient, setNotificationPatient] = useState<QueuePatient | null>(null);
   const [notificationMessage, setNotificationMessage] = useState('');
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isSendingNotification, setIsSendingNotification] = useState(false);
@@ -67,7 +101,7 @@ const QueueTable: React.FC<QueueTableProps> = ({
     priorityFilter: 'All',
   });
 
-  const handleNotification = (patient: Patient) => {
+  const handleNotification = (patient: QueuePatient) => {
     setNotificationPatient(patient);
     setNotificationMessage(`Hello ${patient.name}, the doctor is ready to see you now.`);
     setIsNotificationOpen(true);
@@ -129,7 +163,7 @@ const QueueTable: React.FC<QueueTableProps> = ({
     let result = patients;
     
     if (filters.priorityFilter !== 'All') {
-      result = result.filter(patient => patient.priority === filters.priorityFilter);
+      result = result.filter(patient => patient.priority === filters.priorityFilter.toLowerCase());
     }
     
     // Then filter by search term
@@ -151,14 +185,14 @@ const QueueTable: React.FC<QueueTableProps> = ({
         comparison = a.name.localeCompare(b.name);
       } else if (filters.sortField === 'priority') {
         // Convert priority to numeric value for sorting
-        const priorityMap = { 'High': 3, 'Medium': 2, 'Low': 1 };
-        const priorityA = priorityMap[a.priority as keyof typeof priorityMap];
-        const priorityB = priorityMap[b.priority as keyof typeof priorityMap];
+        const priorityMap = { 'high': 3, 'medium': 2, 'low': 1 };
+        const priorityA = priorityMap[a.priority.toLowerCase() as keyof typeof priorityMap];
+        const priorityB = priorityMap[b.priority.toLowerCase() as keyof typeof priorityMap];
         comparison = priorityB - priorityA; // Higher priority first
-      } else {
-        // Default sort by check-in time
-        comparison = compareAsc(new Date(a.checkInTime), new Date(b.checkInTime));
-      }
+              } else {
+          // Default sort by check-in time
+          comparison = compareDates(a.checkInTime, b.checkInTime);
+        }
       
       // Apply direction
       return filters.sortDirection === 'asc' ? comparison : -comparison;
@@ -203,7 +237,7 @@ const QueueTable: React.FC<QueueTableProps> = ({
         <Table>
           <TableHeader className="bg-gray-50">
             <TableRow>
-              <TableHead className="w-[100px]">Patient ID</TableHead>
+              <TableHead className="w-[80px]">Queue #</TableHead>
               <TableHead>Name</TableHead>
               <TableHead className="hidden md:table-cell">Reason for Visit</TableHead>
               <TableHead className="hidden md:table-cell">Check-In Time</TableHead>
@@ -221,7 +255,7 @@ const QueueTable: React.FC<QueueTableProps> = ({
             ) : (
               filteredAndSortedPatients.map((patient) => (
               <TableRow key={patient.id} className="hover:bg-gray-50">
-                <TableCell className="font-medium">{patient.id}</TableCell>
+                <TableCell className="font-medium">{patient.queue_number}</TableCell>
                 <TableCell>
                   <button 
                     onClick={() => openPatientDetails(patient.id)}
@@ -234,7 +268,7 @@ const QueueTable: React.FC<QueueTableProps> = ({
                   {patient.reason}
                 </TableCell>
                 <TableCell className="hidden md:table-cell">
-                  {format(new Date(patient.checkInTime), 'h:mm a')}
+                  {formatDate(patient.checkInTime)}
                 </TableCell>
                 <TableCell>
                   <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${getPriorityClass(patient.priority)}`}>

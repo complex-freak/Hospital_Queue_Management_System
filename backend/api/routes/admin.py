@@ -45,8 +45,7 @@ async def login_admin(
             user_type="user",
             action="login",
             resource="user",
-            details=f"Failed login attempt for username {login_data.username}",
-            db=db
+            details=f"Failed login attempt for username {login_data.username}"
         )
         
         raise HTTPException(
@@ -75,8 +74,7 @@ async def login_admin(
         action="login",
         resource="user",
         resource_id=user.id,
-        details="Successful admin login",
-        db=db
+        details="Successful admin login"
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
@@ -101,8 +99,7 @@ async def create_user(
             action="create",
             resource="user",
             resource_id=user.id,
-            details=f"New user created: {user.username} with role {user.role}",
-            db=db
+            details=f"New user created: {user.username} with role {user.role}"
         )
         
         return user
@@ -224,8 +221,7 @@ async def update_user(
             action="update",
             resource="user",
             resource_id=user_id,
-            details=f"Admin {current_user.username} updated user {user.username}",
-            db=db
+            details=f"Admin {current_user.username} updated user {user.username}"
         )
         
         return user
@@ -283,8 +279,7 @@ async def delete_user(
             action="delete",
             resource="user",
             resource_id=user_id,
-            details=f"Admin {current_user.username} deactivated user {user.username}",
-            db=db
+            details=f"Admin {current_user.username} deactivated user {user.username}"
         )
         
         return {"message": "User deactivated successfully"}
@@ -366,8 +361,7 @@ async def create_doctor(
             action="create",
             resource="doctor",
             resource_id=doctor.id,
-            details=f"Admin {current_user.username} created doctor {doctor.full_name}",
-            db=db
+            details=f"Admin {current_user.username} created doctor {doctor.full_name}"
         )
         
         return doctor
@@ -457,8 +451,7 @@ async def update_doctor(
             action="update",
             resource="doctor",
             resource_id=doctor_id,
-            details=f"Admin {current_user.username} updated doctor {doctor.full_name}",
-            db=db
+            details=f"Admin {current_user.username} updated doctor {doctor.full_name}"
         )
         
         return doctor
@@ -754,8 +747,7 @@ async def create_patient(
             action="create",
             resource="patient",
             resource_id=patient.id,
-            details=f"Admin {current_user.username} created patient with phone {patient.phone_number}",
-            db=db
+            details=f"Admin {current_user.username} created patient with phone {patient.phone_number}"
         )
         
         return patient
@@ -823,8 +815,7 @@ async def send_notification(
             action="create",
             resource="notification",
             resource_id=notification.id,
-            details=f"Admin {current_user.username} sent notification to patient {patient_id}",
-            db=db
+            details=f"Admin {current_user.username} sent notification to patient {patient_id}"
         )
         
         return {"message": "Notification sent successfully", "id": str(notification.id)}
@@ -860,8 +851,7 @@ async def logout_admin(
             action="logout",
             resource="user",
             resource_id=current_user.id,
-            details=f"Admin {current_user.username} logged out",
-            db=db
+            details=f"Admin {current_user.username} logged out"
         )
         
         return {"message": "Logged out successfully"}

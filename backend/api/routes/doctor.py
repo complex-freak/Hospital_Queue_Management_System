@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, desc, insert
 from uuid import UUID
 import uuid
+import logging
 from datetime import datetime, timedelta
 
 from database import get_db
@@ -29,6 +30,7 @@ from api.core.security import create_access_token
 from api.core.config import settings
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 class PatientNotificationRequest(BaseModel):
@@ -56,8 +58,7 @@ async def login_doctor(
             user_type="user",
             action="login",
             resource="user",
-            details=f"Failed login attempt for doctor username {login_data.username}",
-            db=db
+            details=f"Failed login attempt for doctor username {login_data.username}"
         )
         
         raise HTTPException(
@@ -93,8 +94,7 @@ async def login_doctor(
                     action="login",
         resource="user",
         resource_id=user.id,
-        details="Successful doctor login",
-        db=db
+        details="Successful doctor login"
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
@@ -117,8 +117,7 @@ async def logout_doctor(
             action="logout",
             resource="user",
             resource_id=current_user.id,
-            details=f"Doctor {current_user.username} logged out",
-            db=db
+            details=f"Doctor {current_user.username} logged out"
         )
         
         return {"message": "Logged out successfully"}
@@ -190,45 +189,138 @@ async def get_doctor_queue(
         doctor = result.scalar_one_or_none()
         
         if not doctor:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Doctor profile not found"
+            # Create doctor profile automatically if it doesn't exist
+            import uuid
+            print(f"Creating doctor profile for user {current_user.username} ({current_user.id})")
+            from sqlalchemy import insert
+            new_doctor_id = uuid.uuid4()
+            await db.execute(insert(Doctor).values(
+                id=new_doctor_id,
+                user_id=current_user.id,
+                specialization="General Medicine",  # Default values
+                department="General Practice",
+                is_available=True
+            ))
+            await db.commit()
+            # Fetch the newly created doctor
+            result = await db.execute(
+                select(Doctor).where(Doctor.id == new_doctor_id)
             )
+            doctor = result.scalar_one()
+            print(f"Created doctor profile with ID {doctor.id}")
+        
+        print(f"Found doctor: {doctor.id}")
+        
+        # Check if doctor has any appointments
+        appointment_count_result = await db.execute(
+            select(func.count(Appointment.id))
+            .where(Appointment.doctor_id == doctor.id)
+        )
+        appointment_count = appointment_count_result.scalar() or 0
+        print(f"Doctor {doctor.id} has {appointment_count} total appointments")
+        
+        # Check if doctor has any queue entries
+        queue_count_result = await db.execute(
+            select(func.count(Queue.id))
+            .join(Appointment, Queue.appointment_id == Appointment.id)
+            .where(Appointment.doctor_id == doctor.id)
+        )
+        queue_count = queue_count_result.scalar() or 0
+        print(f"Doctor {doctor.id} has {queue_count} total queue entries")
         
         # Get queue entries with patient info, ordered by priority and queue number
-        result = await db.execute(
-            select(Queue, Appointment, Patient)
-            .join(Appointment, Queue.appointment_id == Appointment.id)
-            .join(Patient, Appointment.patient_id == Patient.id)
-            .where(
-                and_(
-                    Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED]),
-                    Appointment.doctor_id == doctor.id
+        try:
+            result = await db.execute(
+                select(Queue, Appointment, Patient)
+                .join(Appointment, Queue.appointment_id == Appointment.id)
+                .join(Patient, Appointment.patient_id == Patient.id)
+                .where(
+                    and_(
+                        Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED]),
+                        Appointment.doctor_id == doctor.id
+                    )
+                )
+                .order_by(
+                    # Urgent cases first
+                    Appointment.urgency.desc(),
+                    # Then by queue number
+                    Queue.queue_number
                 )
             )
-            .order_by(
-                # Urgent cases first
-                Appointment.urgency.desc(),
-                # Then by queue number
-                Queue.queue_number
+            print(f"Query executed successfully for doctor {doctor.id}")
+        except Exception as query_error:
+            print(f"Error in query execution: {str(query_error)}")
+            # Try a simpler query to debug
+            result = await db.execute(
+                select(Queue)
+                .join(Appointment, Queue.appointment_id == Appointment.id)
+                .where(
+                    and_(
+                        Queue.status.in_([QueueStatus.WAITING, QueueStatus.CALLED]),
+                        Appointment.doctor_id == doctor.id
+                    )
+                )
             )
-        )
+            print(f"Simple query executed, found {len(result.all())} queue entries")
+            return []
         
+        # Convert to Pydantic schemas to avoid MissingGreenlet issues
         queue_entries = []
-        for queue, appointment, patient in result.all():
-            queue_dict = {
-                **QueueSchema.model_validate(queue).model_dump(),
-                "patient": PatientSchema.model_validate(patient),
-                "appointment": AppointmentSchema.model_validate(appointment)
+        all_results = result.all()
+        print(f"Found {len(all_results)} queue entries for doctor {doctor.id}")
+        
+        for queue, appointment, patient in all_results:
+            # Manually construct the queue entry with relationships
+            queue_entry = {
+                "id": str(queue.id),
+                "appointment_id": str(queue.appointment_id),
+                "queue_number": queue.queue_number,
+                "priority_score": queue.priority_score,
+                "status": queue.status.value if hasattr(queue.status, 'value') else str(queue.status),
+                "estimated_wait_time": queue.estimated_wait_time,
+                "called_at": queue.called_at.isoformat() if queue.called_at else None,
+                "served_at": queue.served_at.isoformat() if queue.served_at else None,
+                "created_at": queue.created_at.isoformat() if queue.created_at else None,
+                "updated_at": queue.updated_at.isoformat() if queue.updated_at else None,
+                "appointment": {
+                    "id": str(appointment.id),
+                    "patient_id": str(appointment.patient_id),
+                    "doctor_id": str(appointment.doctor_id) if appointment.doctor_id else None,
+                    "appointment_date": appointment.appointment_date.isoformat() if appointment.appointment_date else None,
+                    "urgency": appointment.urgency.value if hasattr(appointment.urgency, 'value') else str(appointment.urgency),
+                    "reason": appointment.reason,
+                    "status": appointment.status.value if hasattr(appointment.status, 'value') else str(appointment.status),
+                    "created_at": appointment.created_at.isoformat() if appointment.created_at else None,
+                    "updated_at": appointment.updated_at.isoformat() if appointment.updated_at else None,
+                    "patient": {
+                        "id": str(patient.id),
+                        "first_name": patient.first_name,
+                        "last_name": patient.last_name,
+                        "phone_number": patient.phone_number,
+                        "email": patient.email,
+                        "gender": patient.gender,
+                        "date_of_birth": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
+                        "address": patient.address,
+                        "emergency_contact": patient.emergency_contact,
+                        "emergency_contact_name": patient.emergency_contact_name,
+                        "emergency_contact_relationship": patient.emergency_contact_relationship,
+                        "is_active": patient.is_active,
+                        "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                        "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+                    }
+                }
             }
-            queue_entries.append(QueueSchema.model_validate(queue_dict))
+            queue_entries.append(queue_entry)
         
         return queue_entries
         
     except Exception as e:
+        import traceback
+        print(f"Error in get_doctor_queue: {str(e)}")
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch doctor queue"
+            detail=f"Failed to fetch doctor queue: {str(e)}"
         )
 
 @router.get("/queue/next", response_model=Optional[QueueSchema])
@@ -273,12 +365,47 @@ async def get_next_patient(
             return None
         
         queue, appointment, patient = queue_data
-        queue_dict = {
-            **QueueSchema.model_validate(queue).model_dump(),
-            "patient": PatientSchema.model_validate(patient),
-            "appointment": AppointmentSchema.model_validate(appointment)
+        # Manually construct the queue entry with relationships
+        queue_entry = {
+            "id": str(queue.id),
+            "appointment_id": str(queue.appointment_id),
+            "queue_number": queue.queue_number,
+            "priority_score": queue.priority_score,
+            "status": queue.status.value if hasattr(queue.status, 'value') else str(queue.status),
+            "estimated_wait_time": queue.estimated_wait_time,
+            "called_at": queue.called_at.isoformat() if queue.called_at else None,
+            "served_at": queue.served_at.isoformat() if queue.served_at else None,
+            "created_at": queue.created_at.isoformat() if queue.created_at else None,
+            "updated_at": queue.updated_at.isoformat() if queue.updated_at else None,
+            "appointment": {
+                "id": str(appointment.id),
+                "patient_id": str(appointment.patient_id),
+                "doctor_id": str(appointment.doctor_id) if appointment.doctor_id else None,
+                "appointment_date": appointment.appointment_date.isoformat() if appointment.appointment_date else None,
+                "urgency": appointment.urgency.value if hasattr(appointment.urgency, 'value') else str(appointment.urgency),
+                "reason": appointment.reason,
+                "status": appointment.status.value if hasattr(appointment.status, 'value') else str(appointment.status),
+                "created_at": appointment.created_at.isoformat() if appointment.created_at else None,
+                "updated_at": appointment.updated_at.isoformat() if appointment.updated_at else None,
+                "patient": {
+                    "id": str(patient.id),
+                    "first_name": patient.first_name,
+                    "last_name": patient.last_name,
+                    "phone_number": patient.phone_number,
+                    "email": patient.email,
+                    "gender": patient.gender,
+                    "date_of_birth": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
+                    "address": patient.address,
+                    "emergency_contact": patient.emergency_contact,
+                    "emergency_contact_name": patient.emergency_contact_name,
+                    "emergency_contact_relationship": patient.emergency_contact_relationship,
+                    "is_active": patient.is_active,
+                    "created_at": patient.created_at.isoformat() if patient.created_at else None,
+                    "updated_at": patient.updated_at.isoformat() if patient.updated_at else None
+                }
+            }
         }
-        return QueueSchema.model_validate(queue_dict)
+        return queue_entry
         
     except Exception as e:
         raise HTTPException(
@@ -331,15 +458,17 @@ async def mark_patient_served(
         
         queue_entry, appointment, patient = queue_data
         
-        # Mark as served
+        # Mark queue as served
         await QueueService.update_queue_status(db, queue_id, QueueStatus.COMPLETED)
         
         # Update appointment status
         appointment.status = "completed"
-        appointment.completed_at = datetime.utcnow()
+        # Note: appointment.completed_at field doesn't exist, so we'll use updated_at
+        appointment.updated_at = datetime.utcnow()
         if notes:
             appointment.notes = notes
         
+        # Commit the transaction
         await db.commit()
         
         # Update queue positions and send notifications
@@ -371,14 +500,26 @@ async def mark_patient_served(
             action="update",
             resource="queue",
             resource_id=queue_id,
-            details=f"Doctor {doctor.full_name} marked patient {patient.phone_number} as served",
-            db=db
+            details=f"Doctor {doctor.full_name} marked patient {patient.phone_number} as served"
         )
         
         return {"message": "Patient marked as served successfully"}
         
-    except Exception as e:
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
         await db.rollback()
+        raise
+    except ValueError as e:
+        # Handle validation errors
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Handle all other errors
+        await db.rollback()
+        logger.error(f"Error marking patient as served: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to mark patient as served"
@@ -603,8 +744,7 @@ async def update_doctor_status(
             action="update",
             resource="doctor",
             resource_id=doctor.id,
-            details=f"Doctor status updated to available={status_data.is_available}",
-            db=db
+            details=f"Doctor status updated to available={status_data.is_available}"
         )
         
         # Manually set the user attribute to avoid relationship loading errors
@@ -680,8 +820,7 @@ async def create_patient_note(
             action="create",
             resource="patient_note",
             resource_id=note.id,
-            details=f"Doctor created note for patient {patient_id}",
-            db=db
+            details=f"Doctor created note for patient {patient_id}"
         )
         
         return note
@@ -863,8 +1002,7 @@ async def create_consultation_feedback(
                 action="CREATE",
                 resource="consultation_feedback",
                 resource_id=feedback.id,
-                details=f"Doctor created consultation feedback for appointment {appointment_id}",
-                db=db
+                details=f"Doctor created consultation feedback for appointment {appointment_id}"
             )
             
             return feedback
@@ -999,8 +1137,7 @@ async def update_consultation_feedback(
                 action="update",
                 resource="consultation_feedback",
                 resource_id=feedback_id,
-                details=f"Doctor updated consultation feedback {feedback_id}",
-                db=db
+                details=f"Doctor updated consultation feedback {feedback_id}"
             )
             
             return updated_feedback
@@ -1029,31 +1166,7 @@ async def skip_patient(
 ):
     """Skip patient in queue"""
     try:
-        # Get queue entry
-        result = await db.execute(
-            select(Queue).where(Queue.id == queue_id)
-        )
-        queue = result.scalar_one_or_none()
-        
-        if not queue:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Queue entry not found"
-            )
-        
-        # Get appointment
-        result = await db.execute(
-            select(Appointment).where(Appointment.id == queue.appointment_id)
-        )
-        appointment = result.scalar_one_or_none()
-        
-        if not appointment:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Appointment not found"
-            )
-        
-        # Get doctor
+        # Get doctor info
         result = await db.execute(
             select(Doctor).where(Doctor.user_id == current_user.id)
         )
@@ -1065,18 +1178,35 @@ async def skip_patient(
                 detail="Doctor profile not found"
             )
         
-        # Check if the doctor is assigned to this appointment
-        if appointment.doctor_id != doctor.id:
+        # Verify queue entry exists and belongs to this doctor
+        result = await db.execute(
+            select(Queue, Appointment, Patient)
+            .join(Appointment, Queue.appointment_id == Appointment.id)
+            .join(Patient, Appointment.patient_id == Patient.id)
+            .where(
+                and_(
+                    Queue.id == queue_id,
+                    Appointment.doctor_id == doctor.id
+                )
+            )
+        )
+        
+        queue_data = result.first()
+        if not queue_data:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You are not authorized to skip this patient"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Queue entry not found or not assigned to this doctor"
             )
         
-        # Update queue status to SKIPPED
-        queue.status = QueueStatus.SKIPPED
+        queue_entry, appointment, patient = queue_data
+        
+        # Skip the patient using QueueService
+        await QueueService.skip_patient(db, queue_id, "Skipped by doctor")
+        
+        # Commit the transaction
         await db.commit()
         
-        # Update queue positions and send notifications to other patients
+        # Update queue positions and send notifications
         background_tasks.add_task(
             QueueService.update_queue_positions,
             db=db,
@@ -1084,7 +1214,7 @@ async def skip_patient(
             notification_service=None
         )
         
-        # Log the action
+        # Log audit event
         background_tasks.add_task(
             log_audit_event,
             request=request,
@@ -1092,16 +1222,27 @@ async def skip_patient(
             user_type="user",
             action="update",
             resource="queue",
-            resource_id=queue.id,
-            details=f"Patient {appointment.patient_id} skipped in queue",
-            db=db
+            resource_id=queue_id,
+            details=f"Doctor {doctor.full_name} skipped patient {patient.phone_number}"
         )
         
         return {"message": "Patient skipped successfully"}
         
     except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        await db.rollback()
         raise
+    except ValueError as e:
+        # Handle validation errors
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
+        # Handle all other errors
+        await db.rollback()
+        logger.error(f"Error skipping patient: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to skip patient"
@@ -1174,8 +1315,7 @@ async def update_doctor_profile(
             action="update",
             resource="doctor",
             resource_id=doctor.id,
-            details=f"Doctor profile updated",
-            db=db
+            details=f"Doctor profile updated"
         )
         
         return doctor
@@ -1253,8 +1393,7 @@ async def notify_patient(
             action="create",
             resource="notification",
             resource_id=notification,
-            details=f"Doctor sent notification to patient {patient_id}",
-            db=db
+            details=f"Doctor sent notification to patient {patient_id}"
         )
         
         return {"id": str(notification), "message": "Notification sent successfully"}
