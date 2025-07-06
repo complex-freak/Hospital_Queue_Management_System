@@ -46,9 +46,26 @@ import {
 import { queueService } from '@/services/api/queue-service';
 import { receptionistService } from '@/services/api/receptionist-service';
 
+interface Patient {
+  id: string;
+  name?: string;
+  patientName?: string;
+  reason?: string;
+  conditionType?: string;
+  priority?: string;
+  checkInTime?: string;
+  createdAt?: string;
+}
+
+interface Doctor {
+  id: string;
+  name: string;
+  isAvailable: boolean;
+}
+
 interface QueueMonitorProps {
-  patients: any[];
-  doctors: any[];
+  patients: Patient[];
+  doctors: Doctor[];
   isLoading: boolean;
 }
 
@@ -57,7 +74,7 @@ const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, 
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [sortField, setSortField] = useState('checkInTime');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const [patients, setPatients] = useState<any[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [isOnline, setIsOnline] = useState(connectivityService.getStatus());
 
   // Update patients when initialPatients changes
@@ -309,7 +326,7 @@ const QueueMonitor: React.FC<QueueMonitorProps> = ({ patients: initialPatients, 
           
           // Call the API to update the queue order
           queueService.updateQueueEntry(movedPatient.id, {
-            queue_position: newIndex
+            priority_score: newIndex
           }).catch(error => {
             console.error('Error updating queue order:', error);
             // Revert to original order on error

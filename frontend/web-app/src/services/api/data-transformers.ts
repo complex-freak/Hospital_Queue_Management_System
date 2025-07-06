@@ -3,6 +3,99 @@
  * Used to standardize data exchange between API and UI components
  */
 
+// Backend data interfaces
+interface BackendUser {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  phone_number?: string;
+  email?: string;
+  username?: string;
+  gender?: 'male' | 'female' | 'other';
+  date_of_birth?: string;
+  address?: string;
+  emergency_contact?: string;
+  emergency_contact_name?: string;
+  emergency_contact_relationship?: string;
+  role?: string;
+  user?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    username: string;
+  };
+  specialization?: string;
+  department?: string;
+  license_number?: string;
+  is_available?: boolean;
+  patient_count?: number;
+}
+
+interface BackendAppointment {
+  id: string;
+  urgency?: string;
+  reason?: string;
+  status?: string;
+  created_at?: string;
+  patient?: {
+    first_name?: string;
+    last_name?: string;
+    gender?: string;
+    date_of_birth?: string;
+    phone_number?: string;
+  };
+  doctor?: {
+    user?: {
+      first_name?: string;
+      last_name?: string;
+    };
+  };
+  queue_entry?: {
+    queue_number?: number;
+    queue_position?: number;
+    estimated_wait_time?: number;
+  };
+}
+
+interface BackendNotification {
+  id: string;
+  subject?: string;
+  message: string;
+  status?: string;
+  created_at?: string;
+}
+
+interface BackendPatientNote {
+  id: string;
+  content: string;
+  version: number;
+  created_at?: string;
+  doctor_name?: string;
+  doctor_id: string;
+  patient_id: string;
+}
+
+interface BackendConsultationFeedback {
+  id: string;
+  diagnosis?: string;
+  treatment?: string;
+  prescription?: string;
+  follow_up_date?: string;
+  notes?: string;
+  duration?: number;
+  doctor_name?: string;
+  patient_name?: string;
+  created_at?: string;
+}
+
+interface BackendQueueData {
+  appointment?: BackendAppointment;
+  queue_number?: number;
+  queue_position?: number;
+  estimated_wait_time?: number;
+}
+
 // Type definitions matching our frontend models
 export interface User {
   id: string;
@@ -35,6 +128,7 @@ export interface Appointment {
   dateOfBirth: string;
   phoneNumber: string;
   conditionType: 'emergency' | 'elderly' | 'child' | 'normal';
+  reason: string; // Add reason field
   queueNumber: number;
   currentPosition: number;
   estimatedTime: number;
@@ -79,7 +173,7 @@ export interface ConsultationFeedback {
 /**
  * Transform backend user data to frontend User format
  */
-export const transformToFrontendUser = (backendUser: any): User => {
+export const transformToFrontendUser = (backendUser: BackendUser): User => {
   // Handle different user types (staff, doctor, patient)
   const isPatient = backendUser.phone_number !== undefined;
   const isDoctor = backendUser.user?.first_name !== undefined || backendUser.specialization !== undefined;
@@ -159,18 +253,34 @@ export const transformToFrontendUser = (backendUser: any): User => {
 /**
  * Transform backend appointment data to frontend Appointment format
  */
-export const transformToFrontendAppointment = (backendAppointment: any): Appointment => {
-  // Extract and transform patient data
-  const patient = backendAppointment.patient || {};
-  const doctor = backendAppointment.doctor || {};
-  const queue = backendAppointment.queue_entry || {};
+export const transformToFrontendAppointment = (backendData: BackendAppointment | BackendQueueData): Appointment => {
+  // Handle both queue objects and appointment objects
+  let appointment: BackendAppointment, patient, doctor, queue;
+  
+  if ('appointment' in backendData && backendData.appointment) {
+    // This is a queue object with nested appointment
+    queue = backendData;
+    appointment = backendData.appointment;
+    patient = appointment.patient || {};
+    doctor = appointment.doctor || {};
+  } else {
+    // This is a direct appointment object
+    appointment = backendData as BackendAppointment;
+    patient = appointment.patient || {};
+    doctor = appointment.doctor || {};
+    queue = appointment.queue_entry || {};
+  }
   
   // Map urgency to condition type
   const urgencyToConditionType: Record<string, 'emergency' | 'elderly' | 'child' | 'normal'> = {
     'emergency': 'emergency',
+    'EMERGENCY': 'emergency',
     'high': 'elderly',
+    'HIGH': 'elderly',
     'normal': 'normal',
-    'low': 'child'
+    'NORMAL': 'normal',
+    'low': 'child',
+    'LOW': 'child'
   };
   
   // Map status to frontend format
@@ -184,25 +294,26 @@ export const transformToFrontendAppointment = (backendAppointment: any): Appoint
   };
 
   return {
-    id: backendAppointment.id,
+    id: appointment.id,
     patientName: `${patient.first_name || ''} ${patient.last_name || ''}`.trim(),
-    gender: patient.gender || 'other',
+    gender: (patient.gender as 'male' | 'female' | 'other') || 'other',
     dateOfBirth: patient.date_of_birth ? new Date(patient.date_of_birth).toISOString().split('T')[0] : '',
     phoneNumber: patient.phone_number || '',
-    conditionType: urgencyToConditionType[backendAppointment.urgency] || 'normal',
+    conditionType: urgencyToConditionType[appointment.urgency || ''] || 'normal',
+    reason: appointment.reason || 'General consultation', // Add the actual reason
     queueNumber: queue.queue_number || 0,
     currentPosition: queue.queue_position || 0,
     estimatedTime: queue.estimated_wait_time || 0,
     doctorName: doctor.user ? `Dr. ${doctor.user.first_name || ''} ${doctor.user.last_name || ''}`.trim() : undefined,
-    status: statusMap[backendAppointment.status] || 'scheduled',
-    createdAt: backendAppointment.created_at ? new Date(backendAppointment.created_at).toISOString() : new Date().toISOString()
+    status: statusMap[appointment.status || ''] || 'scheduled',
+    createdAt: appointment.created_at ? new Date(appointment.created_at).toISOString() : new Date().toISOString()
   };
 };
 
 /**
  * Transform backend notification data to frontend Notification format
  */
-export const transformToFrontendNotification = (backendNotification: any): Notification => {
+export const transformToFrontendNotification = (backendNotification: BackendNotification): Notification => {
   return {
     id: backendNotification.id,
     title: backendNotification.subject || 'Notification',
@@ -217,7 +328,7 @@ export const transformToFrontendNotification = (backendNotification: any): Notif
 /**
  * Transform backend patient note data to frontend format
  */
-export const transformToFrontendPatientNote = (backendNote: any): PatientNote => {
+export const transformToFrontendPatientNote = (backendNote: BackendPatientNote): PatientNote => {
   return {
     id: backendNote.id,
     content: backendNote.content,
@@ -234,7 +345,7 @@ export const transformToFrontendPatientNote = (backendNote: any): PatientNote =>
 /**
  * Transform backend consultation feedback data to frontend format
  */
-export const transformToFrontendConsultationFeedback = (backendFeedback: any): ConsultationFeedback => {
+export const transformToFrontendConsultationFeedback = (backendFeedback: BackendConsultationFeedback): ConsultationFeedback => {
   return {
     id: backendFeedback.id,
     diagnosis: backendFeedback.diagnosis || '',
@@ -253,10 +364,49 @@ export const transformToFrontendConsultationFeedback = (backendFeedback: any): C
 
 // Frontend to Backend transformers
 
+interface FrontendUserData {
+  username?: string;
+  email?: string;
+  password?: string;
+  firstName?: string;
+  lastName?: string;
+  role?: string;
+}
+
+interface FrontendAppointmentData {
+  patientId?: string;
+  doctorId?: string;
+  appointmentDate?: string;
+  reason?: string;
+  conditionType?: string;
+  status?: string;
+}
+
+interface FrontendNotificationData {
+  recipient?: string;
+  type?: string;
+  message?: string;
+  title?: string;
+}
+
+interface FrontendPatientNoteData {
+  content?: string;
+  patientId?: string;
+  previousVersionId?: string;
+}
+
+interface FrontendConsultationFeedbackData {
+  diagnosis?: string;
+  treatment?: string;
+  prescription?: string;
+  followUpDate?: string;
+  duration?: number;
+}
+
 /**
  * Transform frontend user data to backend format
  */
-export const transformToBackendUserData = (frontendUser: any) => {
+export const transformToBackendUserData = (frontendUser: FrontendUserData) => {
   return {
     username: frontendUser.username,
     email: frontendUser.email,
@@ -270,7 +420,7 @@ export const transformToBackendUserData = (frontendUser: any) => {
 /**
  * Transform frontend appointment data to backend format
  */
-export const transformToBackendAppointment = (frontendAppointment: any) => {
+export const transformToBackendAppointment = (frontendAppointment: FrontendAppointmentData) => {
   // Map condition type to urgency
   const conditionTypeToUrgency: Record<string, string> = {
     'emergency': 'emergency',
@@ -293,15 +443,15 @@ export const transformToBackendAppointment = (frontendAppointment: any) => {
     doctor_id: frontendAppointment.doctorId,
     appointment_date: frontendAppointment.appointmentDate,
     reason: frontendAppointment.reason,
-    urgency: conditionTypeToUrgency[frontendAppointment.conditionType] || 'normal',
-    status: statusMap[frontendAppointment.status] || 'scheduled'
+    urgency: conditionTypeToUrgency[frontendAppointment.conditionType || ''] || 'normal',
+    status: statusMap[frontendAppointment.status || ''] || 'scheduled'
   };
 };
 
 /**
  * Transform frontend notification data to backend format
  */
-export const transformToBackendNotification = (frontendNotification: any) => {
+export const transformToBackendNotification = (frontendNotification: FrontendNotificationData) => {
   return {
     recipient: frontendNotification.recipient,
     type: frontendNotification.type || 'push',
@@ -313,7 +463,7 @@ export const transformToBackendNotification = (frontendNotification: any) => {
 /**
  * Transform frontend patient note data to backend format
  */
-export const transformToBackendPatientNote = (frontendNote: any) => {
+export const transformToBackendPatientNote = (frontendNote: FrontendPatientNoteData) => {
   return {
     content: frontendNote.content,
     patient_id: frontendNote.patientId,
@@ -324,7 +474,7 @@ export const transformToBackendPatientNote = (frontendNote: any) => {
 /**
  * Transform frontend consultation feedback data to backend format
  */
-export const transformToBackendConsultationFeedback = (frontendFeedback: any) => {
+export const transformToBackendConsultationFeedback = (frontendFeedback: FrontendConsultationFeedbackData) => {
   return {
     diagnosis: frontendFeedback.diagnosis,
     treatment: frontendFeedback.treatment,

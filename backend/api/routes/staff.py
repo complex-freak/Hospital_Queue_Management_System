@@ -313,31 +313,38 @@ async def get_queue_status(
             detail="Failed to fetch queue status"
         )
 
-@router.put("/queue/{queue_id}", response_model=QueueSchema)
+@router.put("/queue/{appointment_id}")
 async def update_queue_entry(
-    queue_id: UUID,
+    appointment_id: UUID,
     queue_update: QueueUpdate,
     request: Request,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(require_staff),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update queue entry"""
+    """Update queue entry by appointment ID"""
     try:
+        # Find queue entry by appointment ID
         result = await db.execute(
-            select(Queue).where(Queue.id == queue_id)
+            select(Queue).where(Queue.appointment_id == appointment_id)
         )
         queue_entry = result.scalar_one_or_none()
         
         if not queue_entry:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Queue entry not found"
+                detail="Queue entry not found for this appointment"
             )
         
         # Update queue fields
-        for field, value in queue_update.model_dump(exclude_unset=True).items():
-            setattr(queue_entry, field, value)
+        update_data = queue_update.model_dump(exclude_unset=True)
+        print(f"Updating queue with data: {update_data}")  # Debug logging
+        
+        for field, value in update_data.items():
+            if hasattr(queue_entry, field):
+                setattr(queue_entry, field, value)
+            else:
+                print(f"Warning: Queue model does not have field '{field}'")
         
         # Update timestamp
         queue_entry.updated_at = get_timezone_aware_now()
@@ -351,7 +358,7 @@ async def update_queue_entry(
                 selectinload(Queue.appointment).selectinload(Appointment.patient),
                 selectinload(Queue.appointment).selectinload(Appointment.doctor)
             )
-            .where(Queue.id == queue_id)
+            .where(Queue.appointment_id == appointment_id)
         )
         queue_entry = result.scalar_one()
         
@@ -364,7 +371,7 @@ async def update_queue_entry(
             action="update",
             resource="queue",
             resource_id=queue_entry.id,
-            details=f"Staff {current_user.username} updated queue entry",
+            details=f"Staff {current_user.username} updated queue entry for appointment {appointment_id}",
             db=db
         )
         
@@ -378,8 +385,51 @@ async def update_queue_entry(
                 notification_service=None
             )
         
-        # Convert to Pydantic schema to avoid MissingGreenlet issues
-        return QueueSchema.from_orm(queue_entry)
+        # Return data in format expected by frontend transformer
+        try:
+            return {
+                "id": str(queue_entry.id),
+                "appointment_id": str(queue_entry.appointment_id),
+                "queue_number": queue_entry.queue_number,
+                "priority_score": queue_entry.priority_score,
+                "status": queue_entry.status.value if hasattr(queue_entry.status, 'value') else str(queue_entry.status),
+                "estimated_wait_time": queue_entry.estimated_wait_time,
+                "created_at": queue_entry.created_at.isoformat() if queue_entry.created_at else None,
+                "updated_at": queue_entry.updated_at.isoformat() if queue_entry.updated_at else None,
+                "appointment": {
+                    "id": str(queue_entry.appointment.id),
+                    "urgency": queue_entry.appointment.urgency.value if hasattr(queue_entry.appointment.urgency, 'value') else str(queue_entry.appointment.urgency),
+                    "reason": queue_entry.appointment.reason,
+                    "status": queue_entry.appointment.status.value if hasattr(queue_entry.appointment.status, 'value') else str(queue_entry.appointment.status),
+                    "created_at": queue_entry.appointment.created_at.isoformat() if queue_entry.appointment.created_at else None,
+                    "patient": {
+                        "first_name": queue_entry.appointment.patient.first_name,
+                        "last_name": queue_entry.appointment.patient.last_name,
+                        "gender": queue_entry.appointment.patient.gender,
+                        "date_of_birth": queue_entry.appointment.patient.date_of_birth.isoformat() if queue_entry.appointment.patient.date_of_birth else None,
+                        "phone_number": queue_entry.appointment.patient.phone_number
+                    },
+                    "doctor": {
+                        "user": {
+                            "first_name": queue_entry.appointment.doctor.user.first_name if queue_entry.appointment.doctor and queue_entry.appointment.doctor.user else None,
+                            "last_name": queue_entry.appointment.doctor.user.last_name if queue_entry.appointment.doctor and queue_entry.appointment.doctor.user else None
+                        }
+                    } if queue_entry.appointment.doctor else None
+                }
+            }
+        except Exception as response_error:
+            print(f"Error formatting response: {str(response_error)}")
+            # Fallback to basic response if formatting fails
+            return {
+                "id": str(queue_entry.id),
+                "appointment_id": str(queue_entry.appointment_id),
+                "queue_number": queue_entry.queue_number,
+                "priority_score": queue_entry.priority_score,
+                "status": str(queue_entry.status),
+                "estimated_wait_time": queue_entry.estimated_wait_time,
+                "created_at": queue_entry.created_at.isoformat() if queue_entry.created_at else None,
+                "updated_at": queue_entry.updated_at.isoformat() if queue_entry.updated_at else None
+            }
         
     except ValueError as e:
         await db.rollback()
@@ -389,9 +439,10 @@ async def update_queue_entry(
         )
     except Exception as e:
         await db.rollback()
+        print(f"Queue update error: {str(e)}")  # Add logging for debugging
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update queue entry"
+            detail=f"Failed to update queue entry: {str(e)}"
         )
 
 @router.post("/queue/{queue_id}/call-next")
@@ -984,7 +1035,9 @@ async def update_appointment_priority(
     """Update patient appointment priority"""
     try:
         result = await db.execute(
-            select(Appointment).where(Appointment.id == appointment_id)
+            select(Appointment)
+            .options(selectinload(Appointment.queue_entry))
+            .where(Appointment.id == appointment_id)
         )
         appointment = result.scalar_one_or_none()
         
@@ -1002,7 +1055,7 @@ async def update_appointment_priority(
                 detail="Invalid urgency level"
             )
         
-        appointment.urgency_level = UrgencyLevel(urgency)
+        appointment.urgency = UrgencyLevel(urgency)
         
         # Update queue priority if in queue
         if appointment.queue_entry:
@@ -1035,7 +1088,7 @@ async def update_appointment_priority(
         
         return {
             "id": appointment_id,
-            "urgency": appointment.urgency_level.value,
+            "urgency": appointment.urgency.value,
             "updated_at": appointment.updated_at.isoformat() if appointment.updated_at else None
         }
         
@@ -1060,7 +1113,9 @@ async def cancel_appointment(
     """Cancel an appointment and remove from queue"""
     try:
         result = await db.execute(
-            select(Appointment).where(Appointment.id == appointment_id)
+            select(Appointment)
+            .options(selectinload(Appointment.queue_entry))
+            .where(Appointment.id == appointment_id)
         )
         appointment = result.scalar_one_or_none()
         

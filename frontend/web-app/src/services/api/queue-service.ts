@@ -91,10 +91,20 @@ export const queueService = {
     try {
       const response = await api.put(`/staff/queue/${queueId}`, data);
       
-      return {
-        success: true,
-        data: transformToFrontendAppointment(response.data)
-      };
+      // Try to transform the response, but handle cases where it might not have the expected format
+      try {
+        return {
+          success: true,
+          data: transformToFrontendAppointment(response.data)
+        };
+      } catch (transformError) {
+        console.warn('Could not transform queue update response:', transformError);
+        // Return the raw response if transformation fails
+        return {
+          success: true,
+          data: response.data
+        };
+      }
     } catch (error) {
       console.error('Error updating queue entry:', error);
       return { success: false, error: 'Failed to update queue entry' };

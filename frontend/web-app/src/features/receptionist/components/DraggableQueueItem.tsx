@@ -23,12 +23,29 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+interface Patient {
+  id: string;
+  name?: string;
+  patientName?: string;
+  reason?: string;
+  conditionType?: string;
+  priority?: string;
+  checkInTime?: string;
+  createdAt?: string;
+}
+
+interface Doctor {
+  id: string;
+  name: string;
+  isAvailable: boolean;
+}
+
 interface DraggableQueueItemProps {
-  patient: any;
+  patient: Patient;
   onRemovePatient: (id: string) => void;
   onChangePriority: (id: string, priority: string) => void;
   onAssignDoctor: (patientId: string, doctorId: string) => void;
-  doctors: any[];
+  doctors: Doctor[];
 }
 
 const DraggableQueueItem: React.FC<DraggableQueueItemProps> = ({
@@ -57,16 +74,22 @@ const DraggableQueueItem: React.FC<DraggableQueueItemProps> = ({
 
   // Handle both legacy priority and new conditionType from API
   const getPriority = () => {
+    // First check if we have a direct priority field
     if (patient.priority) return patient.priority;
+    
+    // Then check for conditionType (from transformed data)
     if (patient.conditionType) {
       // Map conditionType to priority
       switch (patient.conditionType.toLowerCase()) {
         case 'emergency': return 'high';
         case 'elderly': return 'high';
         case 'child': return 'medium';
-        default: return 'low';
+        case 'normal': return 'low';
+        default: return 'medium';
       }
     }
+    
+    // Fallback to medium priority
     return 'medium';
   };
 
@@ -131,11 +154,11 @@ const DraggableQueueItem: React.FC<DraggableQueueItemProps> = ({
   const waitTimeSeverity = getWaitTimeSeverity(timestamp);
   const currentPriority = getPriority().toLowerCase();
   
-  // Get patient name (either name for legacy or patientName for API)
-  const patientName = patient.name || patient.patientName;
+  // Get patient name (handle both legacy and transformed data)
+  const patientName = patient.name || patient.patientName || 'Unknown Patient';
   
-  // Get reason (either reason for legacy or conditionType for API)
-  const reason = patient.reason || `${patient.conditionType} condition`;
+  // Get reason (handle both legacy and transformed data)
+  const reason = patient.reason || (patient.conditionType ? `${patient.conditionType} condition` : 'General consultation');
   
   return (
     <TableRow 
