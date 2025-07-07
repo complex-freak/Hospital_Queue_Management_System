@@ -6,6 +6,8 @@ from uuid import UUID
 from datetime import datetime, date, timedelta, timezone
 import asyncio
 import logging
+import random
+import string
 
 from models import Queue, Appointment, Patient, Doctor, User, UrgencyLevel, QueueStatus
 from schemas import QueueCreate, QueueUpdate, QueueResponse
@@ -15,6 +17,14 @@ from utils.datetime_utils import get_timezone_aware_now
 logger = logging.getLogger(__name__)
 
 class QueueService:
+    @staticmethod
+    def generate_queue_identifier() -> str:
+        """Generate a random 4-character queue identifier"""
+        # Use uppercase letters and numbers, excluding similar characters (0, O, 1, I, L)
+        chars = string.ascii_uppercase + string.digits
+        chars = chars.replace('0', '').replace('O', '').replace('1', '').replace('I', '').replace('L', '')
+        return ''.join(random.choices(chars, k=4))
+    
     @staticmethod
     async def add_to_queue(
         db: AsyncSession,
@@ -101,11 +111,16 @@ class QueueService:
             )
             print(f"Estimated wait time: {estimated_wait_time}")
             
+            # Generate queue identifier
+            queue_identifier = QueueService.generate_queue_identifier()
+            print(f"Generated queue identifier: {queue_identifier}")
+            
             # Prepare values for insert, handling the case where doctor_id might be None
             queue_values = {
                 "appointment_id": appointment_id,
                 "patient_id": appointment.patient_id,
                 "queue_number": next_queue_number,
+                "queue_identifier": queue_identifier,
                 "priority_score": priority_score,
                 "status": QueueStatus.WAITING,
                 "estimated_wait_time": estimated_wait_time
@@ -330,16 +345,33 @@ class QueueService:
             current_serving = result.scalar()
             logger.info(f"Current serving: {current_serving}")
             
+            # Get doctor information for the appointment
+            doctor_name = None
+            if queue_entry.appointment_id:
+                result = await db.execute(
+                    select(Appointment).options(
+                        selectinload(Appointment.doctor).selectinload(Doctor.user)
+                    ).where(Appointment.id == queue_entry.appointment_id)
+                )
+                appointment = result.scalar_one_or_none()
+                if appointment and appointment.doctor and appointment.doctor.user:
+                    doctor_name = f"{appointment.doctor.user.first_name} {appointment.doctor.user.last_name}"
+            
+            # Send position-based notifications
+            await QueueService._send_position_notifications(db, patient_id, queue_position, doctor_name)
+            
             # Format as QueueStatusResponse
             response = {
                 "queue_id": queue_entry.id,
                 "queue_position": queue_position,
                 "your_number": queue_entry.queue_number,
+                "queue_identifier": queue_entry.queue_identifier,
                 "estimated_wait_time": queue_entry.estimated_wait_time,
                 "status": queue_entry.status,
                 "appointment_id": queue_entry.appointment_id,
                 "total_in_queue": total_in_queue,
-                "current_serving": current_serving
+                "current_serving": current_serving,
+                "doctor_name": doctor_name
             }
             logger.info(f"Queue status response: {response}")
             return response
@@ -347,6 +379,102 @@ class QueueService:
         except Exception as e:
             logger.error(f"Error in get_queue_status for patient {patient_id}: {str(e)}", exc_info=True)
             raise
+    
+    @staticmethod
+    async def _send_position_notifications(
+        db: AsyncSession,
+        patient_id: UUID,
+        queue_position: int,
+        doctor_name: Optional[str] = None
+    ):
+        """Send notifications based on queue position"""
+        try:
+            # Get patient information
+            result = await db.execute(
+                select(Patient).where(Patient.id == patient_id)
+            )
+            patient = result.scalar_one_or_none()
+            
+            if not patient:
+                logger.warning(f"Patient not found for position notification: {patient_id}")
+                return
+            
+            # Send notifications at specific positions
+            if queue_position == 5:
+                # Send notification when patient is 5th in queue
+                notification_message = f"Hello {patient.first_name}, you are now 5th in the queue. Please be ready in approximately 20-25 minutes."
+                if doctor_name:
+                    notification_message += f" You will be seen by Dr. {doctor_name}."
+                
+                await QueueService._create_and_send_notification(
+                    db, patient_id, "Queue Update", notification_message
+                )
+                
+            elif queue_position == 3:
+                # Send notification when patient is 3rd in queue
+                notification_message = f"Hello {patient.first_name}, you are now 3rd in the queue. Please be ready in approximately 10-15 minutes."
+                if doctor_name:
+                    notification_message += f" You will be seen by Dr. {doctor_name}."
+                
+                await QueueService._create_and_send_notification(
+                    db, patient_id, "Queue Update", notification_message
+                )
+                
+        except Exception as e:
+            logger.error(f"Error sending position notifications: {str(e)}")
+    
+    @staticmethod
+    async def _create_and_send_notification(
+        db: AsyncSession,
+        patient_id: UUID,
+        title: str,
+        message: str
+    ):
+        """Create and send a notification to the patient"""
+        try:
+            from schemas import NotificationCreate
+            from models import NotificationType
+            
+            # Create notification record
+            notification_data = NotificationCreate(
+                type=NotificationType.SYSTEM,
+                recipient=str(patient_id),  # Convert UUID to string
+                message=message,
+                subject=title,
+                patient_id=patient_id
+            )
+            
+            # Use the notification service to create and send the notification
+            notification_service = NotificationService()
+            notification = await notification_service.create_notification(db, notification_data)
+            
+            # Try to send push notification if device token exists
+            try:
+                from models import DeviceToken
+                result = await db.execute(
+                    select(DeviceToken).where(
+                        and_(
+                            DeviceToken.patient_id == patient_id,
+                            DeviceToken.is_active == True
+                        )
+                    )
+                )
+                device_token = result.scalar_one_or_none()
+                
+                if device_token:
+                    await notification_service.send_push_notification(
+                        fcm_token=device_token.token,
+                        title=title,
+                        message=message,
+                        data={"type": "queue_position", "patient_id": str(patient_id)},
+                        notification_id=notification.id,
+                        db=db
+                    )
+            except Exception as push_error:
+                logger.warning(f"Failed to send push notification: {str(push_error)}")
+                
+        except Exception as e:
+            logger.error(f"Error creating notification: {str(e)}")
     
     @staticmethod
     async def get_doctor_queue(

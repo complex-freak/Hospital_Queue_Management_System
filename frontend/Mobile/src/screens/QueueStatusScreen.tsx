@@ -28,6 +28,7 @@ const QueueStatusScreen = () => {
     const [refreshing, setRefreshing] = useState(false);
     const [queueData, setQueueData] = useState({
         queueNumber: 0,
+        queueIdentifier: '',
         currentPosition: 0,
         totalInQueue: 0,
         doctorName: '',
@@ -37,11 +38,29 @@ const QueueStatusScreen = () => {
         status: t('waiting')
     });
     const [loading, setLoading] = useState(true);
+    const [timeSinceCreation, setTimeSinceCreation] = useState(0);
 
     // Load queue data when screen mounts or when the queue state changes
     useEffect(() => {
         fetchQueueData();
     }, [queueState.appointment, isAuthenticated]);
+
+    // Update time since appointment creation every minute
+    useEffect(() => {
+        if (queueState.appointment?.createdAt) {
+            const updateTime = () => {
+                const createdAt = new Date(queueState.appointment.createdAt);
+                const now = new Date();
+                const diffInMinutes = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60));
+                setTimeSinceCreation(diffInMinutes);
+            };
+            
+            updateTime(); // Initial calculation
+            const interval = setInterval(updateTime, 60000); // Update every minute
+            
+            return () => clearInterval(interval);
+        }
+    }, [queueState.appointment?.createdAt]);
 
     // Fetch real queue data from the API
     const fetchQueueData = async () => {
@@ -83,6 +102,7 @@ const QueueStatusScreen = () => {
                     
                     setQueueData({
                         queueNumber: appointment.queue_number || 0,
+                        queueIdentifier: appointment.queue_identifier || '',
                         currentPosition: appointment.currentPosition || 0,
                         totalInQueue: queueStatus?.total_in_queue || 0,
                         doctorName: appointment.doctorName || t('awaitingDoctor'),
@@ -215,7 +235,12 @@ const QueueStatusScreen = () => {
                     <View style={styles.overviewCard}>
                         <View style={styles.queueNumberContainer}>
                             <Text style={styles.queueNumberLabel}>{t('queueNumber')}</Text>
-                            <Text style={styles.queueNumberValue}>{queueData.queueNumber}</Text>
+                            <Text style={styles.queueNumberValue}>
+                                {queueData.queueNumber}
+                                {queueData.queueIdentifier && (
+                                    <Text style={styles.queueIdentifier}> ({queueData.queueIdentifier})</Text>
+                                )}
+                            </Text>
                         </View>
 
                         <View style={styles.positionContainer}>
@@ -234,6 +259,12 @@ const QueueStatusScreen = () => {
                         <View style={styles.timeContainer}>
                             <Text style={styles.timeValue}>{queueData.estimatedTime}</Text>
                             <Text style={styles.timeUnit}>{t('minutes')}</Text>
+                        </View>
+
+                        {/* Time since appointment creation */}
+                        <View style={styles.timeSinceContainer}>
+                            <Text style={styles.timeSinceLabel}>{t('timeSinceCreation')}:</Text>
+                            <Text style={styles.timeSinceValue}>{timeSinceCreation} {t('minutes')}</Text>
                         </View>
 
                         <View style={styles.progressBarContainer}>
@@ -395,6 +426,11 @@ const styles = StyleSheet.create({
         color: COLORS.primary,
         fontWeight: 'bold',
     },
+    queueIdentifier: {
+        ...FONTS.body4,
+        color: COLORS.gray,
+        fontWeight: 'normal',
+    },
     positionContainer: {
         alignItems: 'center',
         backgroundColor: COLORS.primary + '15',
@@ -446,6 +482,25 @@ const styles = StyleSheet.create({
         color: COLORS.gray,
         marginLeft: 4,
         marginBottom: 4,
+    },
+    timeSinceContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginVertical: SIZES.base,
+        paddingHorizontal: SIZES.base,
+        backgroundColor: COLORS.lightGray + '30',
+        borderRadius: SIZES.radius,
+        padding: SIZES.base,
+    },
+    timeSinceLabel: {
+        ...FONTS.body4,
+        color: COLORS.gray,
+        marginRight: 8,
+    },
+    timeSinceValue: {
+        ...FONTS.body4,
+        color: COLORS.primary,
+        fontWeight: 'bold',
     },
     progressBarContainer: {
         marginTop: SIZES.base,

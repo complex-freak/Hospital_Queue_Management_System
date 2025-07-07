@@ -22,6 +22,7 @@ interface QueuePatient extends PatientType {
   status: string;
   appointment_id?: string;
   doctor_id?: string;
+  queue_id?: string;
 }
 
 interface QueueTableProps {

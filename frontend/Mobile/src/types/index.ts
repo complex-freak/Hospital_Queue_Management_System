@@ -34,6 +34,7 @@ export interface Appointment {
     queue_position?: number;
     estimated_wait_time?: number;
     queue_number?: number;
+    queue_identifier?: string;
     
     // Relationships (loaded by backend)
     patient?: {

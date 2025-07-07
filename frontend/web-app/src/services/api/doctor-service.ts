@@ -1,5 +1,5 @@
 import api from './client';
-import { ProfileData } from './types';
+import { ProfileData, ApiError, ApiResponse } from './types';
 import { Patient, ConsultationFeedback, NoteVersion } from '@/types/patient';
 import { authService } from './auth-service';
 import axios, { AxiosError } from 'axios';
@@ -11,8 +11,22 @@ import {
   transformToBackendConsultationFeedback
 } from './data-transformers';
 
+// Define DoctorProfile interface for type safety
+interface DoctorProfile {
+  id: string;
+  userId: string;
+  specialization: string;
+  department: string;
+  isAvailable: boolean;
+  shiftStart?: string;
+  shiftEnd?: string;
+  bio?: string;
+  education?: string;
+  experience?: string;
+}
+
 // Debounce helper
-const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) => {
+const debounce = <F extends (...args: unknown[]) => unknown>(func: F, waitFor: number) => {
   let timeout: ReturnType<typeof setTimeout> | null = null;
 
   const debounced = (...args: Parameters<F>) => {
@@ -79,7 +93,7 @@ export const doctorService = {
           // Transform additional fields as needed
         }
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching doctor profile:', error);
       
       // Handle request cancellation
@@ -107,19 +121,21 @@ export const doctorService = {
       }
       
       // Handle specific error cases
-      if (error.response?.status === 404) {
+      if ((error as AxiosError).response?.status === 404) {
         return {
           success: false,
           error: 'Doctor profile not found. Please contact admin to set up your profile.'
         };
       }
       
-      if (error.response?.status === 401) {
+      if ((error as AxiosError).response?.status === 401) {
         // If unauthorized, try to refresh the token
         try {
-          await authService.refreshToken();
-          // Retry once more after token refresh
-          return doctorService.getDoctorProfile(retryCount + 1);
+          // Note: refreshToken method doesn't exist in authService, removing this call
+          return {
+            success: false,
+            error: 'Your session has expired. Please log in again.'
+          };
         } catch (refreshError) {
           return {
             success: false,
@@ -130,7 +146,7 @@ export const doctorService = {
       
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to fetch doctor profile'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to fetch doctor profile'
       };
     }
   },
@@ -180,7 +196,7 @@ export const doctorService = {
           shiftEnd: response.data.shift_end,
         }
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Remove from active requests on error
       activeRequestsMap.delete(requestKey);
       
@@ -197,7 +213,7 @@ export const doctorService = {
       
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to update status'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to update status'
       };
     }
   },
@@ -223,11 +239,11 @@ export const doctorService = {
         message: 'Profile updated successfully',
         data: response.data
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating profile:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to update profile'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to update profile'
       };
     }
   },
@@ -241,11 +257,11 @@ export const doctorService = {
         success: true,
         data: transformToFrontendUser(response.data)
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching patient details:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to fetch patient details'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to fetch patient details'
       };
     }
   },
@@ -253,9 +269,19 @@ export const doctorService = {
   // Save medical notes for a patient
   savePatientNotes: async (patientId: string, notes: string) => {
     try {
+      const user = authService.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // Get doctor profile to get doctor ID
+      const doctorProfileResponse = await doctorService.getDoctorProfile() as ApiResponse<DoctorProfile>;
+      if (!doctorProfileResponse.success || !doctorProfileResponse.data) {
+        throw new Error('Failed to get doctor profile');
+      }
+
       const noteData = transformToBackendPatientNote({
         content: notes,
-        patientId: patientId
+        patientId: patientId,
+        doctorId: doctorProfileResponse.data.id // Add doctor ID
       });
       
       const response = await api.post(`/doctor/patients/${patientId}/notes`, noteData);
@@ -265,11 +291,11 @@ export const doctorService = {
         message: 'Notes saved successfully',
         data: transformToFrontendPatientNote(response.data)
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error saving patient notes:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to save notes'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to save notes'
       };
     }
   },
@@ -280,19 +306,27 @@ export const doctorService = {
       const response = await api.get(`/doctor/patients/${patientId}/notes`);
       
       // Transform notes data to match frontend format
-      const transformedNotes = response.data.map((note: any) => 
-        transformToFrontendPatientNote(note)
+      const transformedNotes = response.data.map((note: unknown) => 
+        transformToFrontendPatientNote(note as {
+          id: string;
+          content: string;
+          version: number;
+          created_at?: string;
+          doctor_name?: string;
+          doctor_id: string;
+          patient_id: string;
+        })
       );
       
       return { 
         success: true, 
         data: transformedNotes 
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching patient notes:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to fetch patient notes',
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to fetch patient notes',
         data: []
       };
     }
@@ -304,19 +338,27 @@ export const doctorService = {
       const response = await api.get(`/doctor/notes/${noteId}/history`);
       
       // Transform history data to match frontend format
-      const transformedHistory = response.data.map((note: any) => 
-        transformToFrontendPatientNote(note)
+      const transformedHistory = response.data.map((note: unknown) => 
+        transformToFrontendPatientNote(note as {
+          id: string;
+          content: string;
+          version: number;
+          created_at?: string;
+          doctor_name?: string;
+          doctor_id: string;
+          patient_id: string;
+        })
       );
       
       return { 
         success: true, 
         data: transformedHistory 
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching note history:', error);
       
       // If endpoint is not yet implemented, return empty array
-      if (error.response?.status === 404) {
+      if ((error as AxiosError).response?.status === 404) {
         return {
           success: true,
           data: []
@@ -325,7 +367,7 @@ export const doctorService = {
       
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to fetch notes history',
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to fetch notes history',
         data: []
       };
     }
@@ -343,11 +385,11 @@ export const doctorService = {
         message: 'Consultation submitted successfully',
         data: transformToFrontendConsultationFeedback(response.data)
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error submitting consultation:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to submit consultation'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to submit consultation'
       };
     }
   },
@@ -361,11 +403,11 @@ export const doctorService = {
         success: true, 
         data: transformToFrontendConsultationFeedback(response.data)
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching consultation feedback:', error);
       
       // If feedback doesn't exist yet
-      if (error.response?.status === 404) {
+      if ((error as AxiosError).response?.status === 404) {
         return {
           success: true,
           data: null
@@ -374,7 +416,7 @@ export const doctorService = {
       
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to fetch consultation feedback'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to fetch consultation feedback'
       };
     }
   },
@@ -391,11 +433,11 @@ export const doctorService = {
         message: 'Consultation feedback updated successfully',
         data: transformToFrontendConsultationFeedback(response.data)
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating consultation feedback:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to update consultation feedback'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to update consultation feedback'
       };
     }
   },
@@ -428,7 +470,7 @@ export const doctorService = {
           data: []
         };
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching doctor queue:', error);
       
       // Handle request cancellation
@@ -455,7 +497,7 @@ export const doctorService = {
       }
       
       // Handle 404 (no queue) as empty array rather than error
-      if (error.response?.status === 404) {
+      if ((error as AxiosError).response?.status === 404) {
         return {
           success: true,
           data: []
@@ -463,12 +505,15 @@ export const doctorService = {
       }
       
       // Handle authentication issues
-      if (error.response?.status === 401) {
+      if ((error as AxiosError).response?.status === 401) {
         // If unauthorized, try to refresh the token
         try {
-          await authService.refreshToken();
-          // Retry once more after token refresh
-          return doctorService.getDoctorQueue(retryCount + 1);
+          // Note: refreshToken method doesn't exist in authService, removing this call
+          return {
+            success: false,
+            error: 'Your session has expired. Please log in again.',
+            data: []
+          };
         } catch (refreshError) {
           // If refresh fails, return authentication error
           return {
@@ -481,7 +526,7 @@ export const doctorService = {
       
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to fetch doctor queue',
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to fetch doctor queue',
         data: []
       };
     }
@@ -495,11 +540,11 @@ export const doctorService = {
         success: true,
         data: response.data
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching next patient:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to fetch next patient'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to fetch next patient'
       };
     }
   },
@@ -513,11 +558,11 @@ export const doctorService = {
         data: response.data,
         message: 'Patient marked as served'
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error marking patient as served:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to mark patient as served'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to mark patient as served'
       };
     }
   },
@@ -530,11 +575,11 @@ export const doctorService = {
         success: true,
         data: response.data
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching dashboard stats:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to fetch dashboard stats'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to fetch dashboard stats'
       };
     }
   },
@@ -551,11 +596,11 @@ export const doctorService = {
         success: true, 
         data: response.data
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error marking patient as seen:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to mark patient as seen'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to mark patient as seen'
       };
     }
   },
@@ -572,11 +617,11 @@ export const doctorService = {
         success: true, 
         data: response.data
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error skipping patient:', error);
       return {
         success: false,
-        error: error.response?.data?.detail || 'Failed to skip patient'
+        error: ((error as AxiosError).response?.data as { detail?: string })?.detail || 'Failed to skip patient'
       };
     }
   }

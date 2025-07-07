@@ -11,3 +11,23 @@ export interface ProfileData {
   education?: string;
   experience?: string;
 }
+
+// Common types for API services
+
+export interface ApiError {
+  response?: {
+    data?: {
+      detail?: string;
+      message?: string;
+    };
+  };
+  message?: string;
+}
+
+export interface ApiResponse<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+  wasCancelled?: boolean;
+}

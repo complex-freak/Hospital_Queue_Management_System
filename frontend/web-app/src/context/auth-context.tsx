@@ -42,7 +42,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const token = localStorage.getItem('token');
         if (token) {
           // Get user from localStorage first for immediate UI update
-          const storedUser = authService.getCurrentUser();
+          const storedUser = authService.getStoredUser();
           if (storedUser) {
             setUser(storedUser);
             
@@ -57,6 +57,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Auth check failed:', err);
         // If token/user is invalid, clear localStorage
         authService.logout();
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -86,8 +87,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setError(result.error || 'Login failed');
         return false;
       }
-    } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setError(errorMessage);
       return false;
     } finally {
       setIsLoading(false);
@@ -115,8 +117,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setError(result.error || 'Login failed');
         return false;
       }
-    } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setError(errorMessage);
       return false;
     } finally {
       setIsLoading(false);
@@ -144,8 +147,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setError(result.error || 'Login failed');
         return false;
       }
-    } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setError(errorMessage);
       return false;
     } finally {
       setIsLoading(false);
@@ -155,15 +159,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Get user profile from the server
   const getProfile = async (): Promise<void> => {
     try {
-      const result = await authService.getProfile();
+      const result = await authService.getCurrentUserFromServer();
       if (result.success && result.data) {
         setUser(result.data);
         
         // Store userId for reconnection
         localStorage.setItem('userId', result.data.id);
+      } else {
+        // If getting current user fails, clear authentication
+        console.error('Failed to get current user:', result.error);
+        authService.logout();
+        setUser(null);
       }
     } catch (err) {
       console.error('Failed to fetch user profile:', err);
+      // If there's an error, clear authentication
+      authService.logout();
+      setUser(null);
     }
   };
   

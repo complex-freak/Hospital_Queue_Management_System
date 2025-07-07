@@ -1,5 +1,6 @@
 import api from './client';
-import { transformToFrontendUser, transformToBackendUserData } from './data-transformers';
+import { transformToFrontendUser, transformToBackendUserData, User } from './data-transformers';
+import { ApiError } from './types';
 
 export interface LoginCredentials {
   username: string;
@@ -20,6 +21,20 @@ export interface RegisterData {
   role: 'staff' | 'receptionist' | 'doctor' | 'admin';
 }
 
+export interface PatientRegisterData {
+  first_name: string;
+  last_name: string;
+  phone_number: string;
+  password: string;
+  email?: string;
+  date_of_birth?: string;
+  gender?: string;
+  address?: string;
+  emergency_contact?: string;
+  emergency_contact_name?: string;
+  emergency_contact_relationship?: string;
+}
+
 export interface ChangePasswordData {
   currentPassword: string;
   newPassword: string;
@@ -36,7 +51,7 @@ export interface AuthResponse {
   tokenType: string;
   expiresIn?: number;
   refreshToken?: string;
-  user?: any;
+  user?: User;
 }
 
 // Authentication service for the web app
@@ -87,11 +102,12 @@ export const authService = {
       }
       
       return { success: false, error: 'Invalid response from server' };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Login error:', error);
+      const apiError = error as ApiError;
       return { 
         success: false, 
-        error: error.response?.data?.detail || 'Failed to login. Please check your credentials.'
+        error: apiError.response?.data?.detail || 'Failed to login. Please check your credentials.'
       };
     }
   },
@@ -144,11 +160,12 @@ export const authService = {
       }
       
       return { success: false, error: 'Invalid response from server' };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Doctor login error:', error);
+      const apiError = error as ApiError;
       return { 
         success: false, 
-        error: error.response?.data?.detail || 'Failed to login. Please check your credentials.'
+        error: apiError.response?.data?.detail || 'Failed to login. Please check your credentials.'
       };
     }
   },
@@ -199,186 +216,54 @@ export const authService = {
       }
       
       return { success: false, error: 'Invalid response from server' };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Receptionist login error:', error);
+      const apiError = error as ApiError;
       return { 
         success: false, 
-        error: error.response?.data?.detail || 'Failed to login. Please check your credentials.'
+        error: apiError.response?.data?.detail || 'Failed to login. Please check your credentials.'
       };
     }
   },
   
-  // Logout
-  logout: async () => {
+  // Patient login (for mobile app)
+  patientLogin: async (credentials: PatientLoginCredentials) => {
     try {
-      // Determine the appropriate API endpoint based on user role
-      const user = authService.getCurrentUser();
-      let endpoint = '/admin/logout';
-      
-      if (user?.role === 'doctor') {
-        endpoint = '/doctor/logout';
-      } else if (user?.role === 'receptionist' || user?.role === 'staff') {
-        endpoint = '/staff/logout';
-      }
-      
-      // Call the logout endpoint
-      await api.post(endpoint);
-      
-      // Clear local storage regardless of API response
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      
-      return { success: true };
-    } catch (error) {
-      // Even if the API call fails, we still want to clear local storage
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      console.error('Logout error:', error);
-      return { success: true };
-    }
-  },
-  
-  // Check if user is authenticated
-  isAuthenticated: () => {
-    const token = localStorage.getItem('token');
-    return !!token;
-  },
-  
-  // Get current user
-  getCurrentUser: () => {
-    const userJSON = localStorage.getItem('user');
-    if (userJSON) {
-      try {
-        return JSON.parse(userJSON);
-      } catch (e) {
-        console.error('Error parsing user data:', e);
-        return null;
-      }
-    }
-    return null;
-  },
-  
-  // Register new user (for admin usage)
-  register: async (userData: RegisterData) => {
-    try {
-      const response = await api.post('/admin/users', transformToBackendUserData(userData));
-      
-      return {
-        success: true,
-        data: transformToFrontendUser(response.data)
-      };
-    } catch (error: any) {
-      console.error('Registration error:', error);
-      return { 
-        success: false, 
-        error: error.response?.data?.detail || 'Failed to register user.'
-      };
-    }
-  },
-  
-  // Change password
-  changePassword: async (passwordData: ChangePasswordData) => {
-    try {
-      // Determine the appropriate API endpoint based on user role
-      const user = authService.getCurrentUser();
-      let endpoint = '/admin/change-password';
-      
-      if (user?.role === 'doctor') {
-        endpoint = '/doctor/change-password';
-      } else if (user?.role === 'receptionist' || user?.role === 'staff') {
-        endpoint = '/staff/change-password';
-      }
-      
-      const response = await api.post(endpoint, {
-        current_password: passwordData.currentPassword,
-        new_password: passwordData.newPassword
-      });
-      
-      return {
-        success: true,
-        message: 'Password changed successfully'
-      };
-    } catch (error: any) {
-      console.error('Change password error:', error);
-      return { 
-        success: false, 
-        error: error.response?.data?.detail || 'Failed to change password.'
-      };
-    }
-  },
-  
-  // Get user profile
-  getProfile: async () => {
-    try {
-      // Determine the appropriate API endpoint based on user role
-      const user = authService.getCurrentUser();
-      let endpoint = '/admin/me';
-      
-      if (user?.role === 'doctor') {
-        endpoint = '/doctor/me';
-      } else if (user?.role === 'receptionist' || user?.role === 'staff') {
-        endpoint = '/staff/me';
-      }
-      
-      const response = await api.get(endpoint);
-      
-      return {
-        success: true,
-        data: transformToFrontendUser(response.data)
-      };
-    } catch (error: any) {
-      console.error('Get profile error:', error);
-      return { 
-        success: false, 
-        error: error.response?.data?.detail || 'Failed to fetch user profile.'
-      };
-    }
-  },
-  
-  // Get user roles (for admin usage)
-  getRoles: async () => {
-    try {
-      const response = await api.get('/admin/roles');
-      return {
-        success: true,
-        data: response.data
-      };
-    } catch (error: any) {
-      console.error('Get roles error:', error);
-      return { 
-        success: false, 
-        error: error.response?.data?.detail || 'Failed to fetch roles.'
-      };
-    }
-  },
-  
-  // Refresh the authentication token
-  refreshToken: async () => {
-    try {
-      const currentToken = localStorage.getItem('token');
-      if (!currentToken) {
-        throw new Error('No token available to refresh');
-      }
-      
-      // Determine the appropriate API endpoint based on user role
-      const user = authService.getCurrentUser();
-      let endpoint = '/admin/refresh-token';
-      
-      if (user?.role === 'doctor') {
-        endpoint = '/doctor/refresh-token';
-      } else if (user?.role === 'receptionist' || user?.role === 'staff') {
-        endpoint = '/staff/refresh-token';
-      }
-      
-      const response = await api.post(endpoint, {}, {
-        headers: {
-          'Authorization': `Bearer ${currentToken}`
-        }
+      const response = await api.post('/patient/login', {
+        phone_number: credentials.phone_number,
+        password: credentials.password
       });
       
       if (response.data.access_token) {
-        // Store the new token in localStorage
+        // Store the token in localStorage
         localStorage.setItem('token', response.data.access_token);
+        
+        // Try to fetch patient profile
+        try {
+          const profileResponse = await api.get('/patient/profile', {
+            headers: { 'Authorization': `Bearer ${response.data.access_token}` }
+          });
+          
+          if (profileResponse.data) {
+            const userData = transformToFrontendUser({
+              ...profileResponse.data,
+              role: 'patient'
+            });
+            localStorage.setItem('user', JSON.stringify(userData));
+            
+            return {
+              success: true,
+              data: {
+                accessToken: response.data.access_token,
+                tokenType: response.data.token_type || 'bearer',
+                user: userData
+              }
+            };
+          }
+        } catch (profileError) {
+          console.error('Error fetching patient profile:', profileError);
+        }
+        
         return {
           success: true,
           data: {
@@ -389,18 +274,230 @@ export const authService = {
       }
       
       return { success: false, error: 'Invalid response from server' };
-    } catch (error: any) {
-      console.error('Token refresh error:', error);
-      
-      // Clear token if it's invalid or expired
-      if (error.response?.status === 401) {
-        localStorage.removeItem('token');
-      }
-      
+    } catch (error: unknown) {
+      console.error('Patient login error:', error);
+      const apiError = error as ApiError;
       return { 
         success: false, 
-        error: error.response?.data?.detail || 'Failed to refresh token.'
+        error: apiError.response?.data?.detail || 'Failed to login. Please check your credentials.'
       };
+    }
+  },
+  
+  // Register new user (staff/admin)
+  register: async (userData: RegisterData) => {
+    try {
+      // Transform frontend data to backend format
+      const backendData = transformToBackendUserData({
+        username: userData.username,
+        email: userData.email,
+        password: userData.password,
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        role: userData.role
+      });
+
+      const response = await api.post('/admin/register', backendData);
+      
+      if (response.data) {
+        return {
+          success: true,
+          data: response.data
+        };
+      }
+      
+      return { success: false, error: 'Registration failed' };
+    } catch (error: unknown) {
+      console.error('Registration error:', error);
+      const apiError = error as ApiError;
+      return { 
+        success: false, 
+        error: apiError.response?.data?.detail || 'Registration failed. Please try again.'
+      };
+    }
+  },
+  
+  // Register new patient
+  registerPatient: async (patientData: PatientRegisterData) => {
+    try {
+      const response = await api.post('/patient/register', patientData);
+      
+      if (response.data) {
+        return {
+          success: true,
+          data: response.data
+        };
+      }
+      
+      return { success: false, error: 'Patient registration failed' };
+    } catch (error: unknown) {
+      console.error('Patient registration error:', error);
+      const apiError = error as ApiError;
+      return { 
+        success: false, 
+        error: apiError.response?.data?.detail || 'Patient registration failed. Please try again.'
+      };
+    }
+  },
+  
+  // Register patient by staff
+  registerPatientByStaff: async (patientData: PatientRegisterData) => {
+    try {
+      const response = await api.post('/staff/patients/register', patientData);
+      
+      if (response.data) {
+        return {
+          success: true,
+          data: response.data
+        };
+      }
+      
+      return { success: false, error: 'Patient registration failed' };
+    } catch (error: unknown) {
+      console.error('Patient registration error:', error);
+      const apiError = error as ApiError;
+      return { 
+        success: false, 
+        error: apiError.response?.data?.detail || 'Patient registration failed. Please try again.'
+      };
+    }
+  },
+  
+  // Logout
+  logout: async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      if (token) {
+        // Determine logout endpoint based on user role
+        let logoutEndpoint = '/staff/logout';
+        if (user.role === 'doctor') {
+          logoutEndpoint = '/doctor/logout';
+        } else if (user.role === 'admin') {
+          logoutEndpoint = '/admin/logout';
+        } else if (user.role === 'patient') {
+          logoutEndpoint = '/patient/logout';
+        }
+        
+        await api.post(logoutEndpoint);
+      }
+      
+      // Clear local storage
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      
+      return { success: true };
+    } catch (error: unknown) {
+      console.error('Logout error:', error);
+      // Clear local storage even if logout request fails
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      return { success: true };
+    }
+  },
+  
+  // Change password
+  changePassword: async (passwordData: ChangePasswordData) => {
+    try {
+      const response = await api.post('/staff/change-password', {
+        current_password: passwordData.currentPassword,
+        new_password: passwordData.newPassword
+      });
+      
+      if (response.data) {
+        return {
+          success: true,
+          data: response.data
+        };
+      }
+      
+      return { success: false, error: 'Password change failed' };
+    } catch (error: unknown) {
+      console.error('Password change error:', error);
+      const apiError = error as ApiError;
+      return { 
+        success: false, 
+        error: apiError.response?.data?.detail || 'Password change failed. Please try again.'
+      };
+    }
+  },
+  
+  // Get current user (synchronous - from localStorage)
+  getCurrentUser: () => {
+    try {
+      const token = localStorage.getItem('token');
+      const user = localStorage.getItem('user');
+      
+      if (!token || !user) {
+        return null;
+      }
+      
+      return JSON.parse(user);
+    } catch (error) {
+      console.error('Error getting current user:', error);
+      return null;
+    }
+  },
+  
+  // Get current user from server (async)
+  getCurrentUserFromServer: async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      if (!token) {
+        return { success: false, error: 'No token found' };
+      }
+      
+      // Determine endpoint based on user role
+      let endpoint = '/staff/me';
+      if (user.role === 'doctor') {
+        endpoint = '/doctor/me';
+      } else if (user.role === 'admin') {
+        endpoint = '/admin/me';
+      } else if (user.role === 'patient') {
+        endpoint = '/patient/profile';
+      }
+      
+      const response = await api.get(endpoint);
+      
+      if (response.data) {
+        const userData = transformToFrontendUser(response.data);
+        localStorage.setItem('user', JSON.stringify(userData));
+        
+        return {
+          success: true,
+          data: userData
+        };
+      }
+      
+      return { success: false, error: 'Failed to get user data' };
+    } catch (error: unknown) {
+      console.error('Get current user error:', error);
+      const apiError = error as ApiError;
+      return { 
+        success: false, 
+        error: apiError.response?.data?.detail || 'Failed to get user data.'
+      };
+    }
+  },
+  
+  // Check if user is authenticated
+  isAuthenticated: () => {
+    const token = localStorage.getItem('token');
+    const user = localStorage.getItem('user');
+    return !!(token && user);
+  },
+  
+  // Get stored user data
+  getStoredUser: () => {
+    try {
+      const user = localStorage.getItem('user');
+      return user ? JSON.parse(user) : null;
+    } catch (error) {
+      console.error('Error parsing stored user:', error);
+      return null;
     }
   }
 };

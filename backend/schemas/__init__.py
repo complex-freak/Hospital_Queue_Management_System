@@ -381,6 +381,8 @@ class QueueStatusResponse(BaseModel):
     current_serving: Optional[int] = None
     total_in_queue: int
     your_number: int
+    queue_identifier: Optional[str] = None
+    doctor_name: Optional[str] = None
     status: QueueStatus
 
 

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/loader';
 import { RefreshCw } from 'lucide-react';
 import { Patient as PatientType, PriorityLevel } from '@/types/patient';
+import { ApiResponse } from '@/services/api/types';
 
 // Define the queue entry interface to match backend response
 interface QueueEntry {
@@ -24,21 +25,23 @@ interface QueueEntry {
     urgency: string;
     created_at: string | null;
     patient?: {
+      id: string;
       first_name: string;
       last_name: string;
     };
+    patient_id?: string;
   };
 }
 
 // Define the doctor profile interface
 interface DoctorProfile {
   id: string;
-  user_id: string;
+  userId: string;
   specialization: string;
   department: string;
-  is_available: boolean;
-  shift_start?: string;
-  shift_end?: string;
+  isAvailable: boolean;
+  shiftStart?: string;
+  shiftEnd?: string;
   bio?: string;
   education?: string;
   experience?: string;
@@ -52,6 +55,7 @@ interface QueuePatient extends PatientType {
   status: string;
   appointment_id?: string;
   doctor_id?: string;
+  queue_id?: string; // Add queue_id for backend operations
 }
 
 // Helper function to convert backend priority to PriorityLevel
@@ -103,7 +107,7 @@ const Dashboard = () => {
         // Only proceed if component is still mounted
         if (!isComponentMounted.current) return;
         
-        const response = await doctorService.getDoctorProfile();
+        const response = await doctorService.getDoctorProfile() as ApiResponse<DoctorProfile>;
         
         // Check again if component is still mounted before updating state
         if (!isComponentMounted.current) return;
@@ -182,7 +186,7 @@ const Dashboard = () => {
         return;
       }
       
-      const response = await doctorService.getDoctorQueue();
+      const response = await doctorService.getDoctorQueue() as ApiResponse<QueueEntry[]>;
       
       // Check if component is still mounted before updating state
       if (!isComponentMounted.current) return;
@@ -229,16 +233,19 @@ const Dashboard = () => {
           const name = `${firstName} ${lastName}`.trim() || 'Unknown Patient';
           
           return {
-            id: queueEntry.id, // Use queue ID as the unique identifier
+            id: queueEntry.appointment?.patient?.id || queueEntry.appointment?.patient_id || queueEntry.id, // Use patient ID as the unique identifier
             queue_number: queueEntry.queue_number || 0,
             name: name,
             reason: queueEntry.appointment?.reason || 'No reason provided',
             checkInTime: checkInTime,
             priority: convertPriority(queueEntry.appointment?.urgency || 'medium'),
             status: queueEntry.status || 'waiting',
+            registeredTime: checkInTime ? new Date(checkInTime) : new Date(),
+            department: 'General',
             appointment_id: queueEntry.appointment?.id,
-            doctor_id: queueEntry.appointment?.doctor_id
-          };
+            doctor_id: queueEntry.appointment?.doctor_id,
+            queue_id: queueEntry.id
+          } as QueuePatient;
         });
         setPatients(newPatients);
         
@@ -362,16 +369,27 @@ const Dashboard = () => {
     await fetchQueue();
   };
 
-  const handlePatientSeen = async (queueId: string) => {
+  const handlePatientSeen = async (patientId: string) => {
     try {
-      const response = await doctorService.markPatientSeen(queueId);
+      // Find the patient to get the queue_id
+      const patient = patients.find(p => p.id === patientId);
+      if (!patient || !patient.queue_id) {
+        toast({
+          title: 'Error',
+          description: 'Could not find queue information for this patient',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const response = await doctorService.markPatientSeen(patient.queue_id);
       
       // Check if component is still mounted before updating state
       if (!isComponentMounted.current) return;
       
       if (response.success) {
         // Remove the patient from the queue
-        setPatients(patients.filter(patient => patient.id !== queueId));
+        setPatients(patients.filter(p => p.id !== patientId));
         toast({
           title: 'Patient Marked as Seen',
           description: 'The patient has been removed from your queue.',
@@ -396,16 +414,27 @@ const Dashboard = () => {
     }
   };
 
-  const handlePatientSkipped = async (queueId: string) => {
+  const handlePatientSkipped = async (patientId: string) => {
     try {
-      const response = await doctorService.skipPatient(queueId);
+      // Find the patient to get the queue_id
+      const patient = patients.find(p => p.id === patientId);
+      if (!patient || !patient.queue_id) {
+        toast({
+          title: 'Error',
+          description: 'Could not find queue information for this patient',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const response = await doctorService.skipPatient(patient.queue_id);
       
       // Check if component is still mounted before updating state
       if (!isComponentMounted.current) return;
       
       if (response.success) {
         // Remove the patient from the queue
-        setPatients(patients.filter(patient => patient.id !== queueId));
+        setPatients(patients.filter(p => p.id !== patientId));
         toast({
           title: 'Patient Skipped',
           description: 'The patient has been skipped in your queue.',

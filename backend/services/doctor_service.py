@@ -113,22 +113,16 @@ class DoctorService:
         latest_version = result.scalar() or 0
         
         # Create new note
-        note = PatientNote()
-        note.id = uuid.uuid4()
-        note.patient_id = note_data.patient_id
-        note.doctor_id = note_data.doctor_id
-        note.content = note_data.content
-        note.version = latest_version + 1
-        note.previous_version_id = note_data.previous_version_id
+        note_values = {
+            "id": uuid.uuid4(),
+            "patient_id": note_data.patient_id,
+            "doctor_id": note_data.doctor_id,
+            "content": note_data.content,
+            "version": latest_version + 1,
+            "previous_version_id": note_data.previous_version_id
+        }
         
-        result = await db.execute(insert(PatientNote).values(
-            id=note.id,
-            patient_id=note.patient_id,
-            doctor_id=note.doctor_id,
-            content=note.content,
-            version=note.version,
-            previous_version_id=note.previous_version_id
-        ).returning(PatientNote))
+        result = await db.execute(insert(PatientNote).values(**note_values).returning(PatientNote))
         note = result.scalar_one()
         await db.commit()
         
@@ -241,49 +235,30 @@ class DoctorService:
         logger.info("No existing feedback found, creating new feedback")
         
         # Create new feedback
-        feedback = ConsultationFeedback()
-        feedback.id = uuid.uuid4()
-        feedback.appointment_id = feedback_data.appointment_id
-        feedback.doctor_id = feedback_data.doctor_id
-        feedback.diagnosis = feedback_data.diagnosis
-        feedback.treatment = feedback_data.treatment
-        feedback.prescription = feedback_data.prescription
-        feedback.follow_up_date = feedback_data.follow_up_date
-        feedback.duration = feedback_data.duration
+        feedback_values = {
+            "id": uuid.uuid4(),
+            "appointment_id": feedback_data.appointment_id,
+            "doctor_id": feedback_data.doctor_id,
+            "diagnosis": feedback_data.diagnosis,
+            "treatment": feedback_data.treatment,
+            "prescription": feedback_data.prescription,
+            "follow_up_date": feedback_data.follow_up_date,
+            "duration": feedback_data.duration
+        }
+        
+        result = await db.execute(insert(ConsultationFeedback).values(**feedback_values).returning(ConsultationFeedback))
+        feedback = result.scalar_one()
         
         logger.info(f"Created feedback object with ID: {feedback.id}")
         
         # Update appointment status to completed
         appointment.status = AppointmentStatus.COMPLETED
         
-        logger.info("Inserting consultation feedback into database")
-        result = await db.execute(insert(ConsultationFeedback).values(
-            id=feedback.id,
-            appointment_id=feedback.appointment_id,
-            doctor_id=feedback.doctor_id,
-            diagnosis=feedback.diagnosis,
-            treatment=feedback.treatment,
-            prescription=feedback.prescription,
-            follow_up_date=feedback.follow_up_date,
-            duration=feedback.duration
-        ).returning(ConsultationFeedback))
-        inserted_feedback = result.scalar_one()
-        
-        logger.info(f"Inserted feedback: {inserted_feedback.id}")
-        
-        # Update appointment status in database
-        logger.info("Updating appointment status to COMPLETED")
-        await db.execute(
-            update(Appointment)
-            .where(Appointment.id == appointment.id)
-            .values(status=AppointmentStatus.COMPLETED)
-        )
-        
         logger.info("Committing transaction")
         await db.commit()
         
-        logger.info(f"Successfully created consultation feedback: {inserted_feedback.id}")
-        return inserted_feedback
+        logger.info(f"Successfully created consultation feedback: {feedback.id}")
+        return feedback
     
     @staticmethod
     async def get_consultation_feedback(

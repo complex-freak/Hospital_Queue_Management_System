@@ -19,6 +19,8 @@ export interface QueueStatusResponse {
   current_serving: number | null;
   total_in_queue: number;
   your_number: number;
+  queue_identifier?: string;
+  doctor_name?: string;
   status: string; // 'waiting', 'called', 'in_progress', 'completed', 'skipped'
 }
 
@@ -54,6 +56,18 @@ class AppointmentService {
   constructor() {
     // Set up conflict handler for appointments
     syncService.setConflictHandler('appointment', this.handleAppointmentConflict);
+  }
+
+  /**
+   * Generate a random 4-character queue identifier
+   */
+  private generateQueueIdentifier(): string {
+    const chars = 'ABCDEFGHIJKMNOPQRSTUVWXYZ23456789'; // Excluding similar characters
+    let result = '';
+    for (let i = 0; i < 4; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
   }
 
   /**
@@ -116,6 +130,7 @@ class AppointmentService {
           dateOfBirth: '',
           phoneNumber: '',
           queue_number: 0,
+          queue_identifier: this.generateQueueIdentifier(),
           currentPosition: 0,
           estimatedTime: 0
         };
@@ -605,9 +620,10 @@ class AppointmentService {
       phoneNumber: apiData.patient.phone_number,
       conditionType: conditionTypeMap[apiData.urgency] || 'normal',
       queue_number: queueData?.your_number || 0,
+      queue_identifier: queueData?.queue_identifier || undefined,
       currentPosition: queueData?.queue_position || 0,
       estimatedTime: queueData?.estimated_wait_time || 0,
-      doctorName,
+      doctorName: queueData?.doctor_name || doctorName,
       createdAt: apiData.created_at,
       reasonForVisit: apiData.reason || undefined,
       additionalInformation: apiData.notes || undefined,

@@ -39,10 +39,49 @@ const PatientDetailsViewer: React.FC<PatientDetailsViewerProps> = ({
       
       setIsLoading(true);
       try {
-        const response = await apiService.getPatientDetails(patientId);
-        if (response.success && response.data) {
-          // Transform User data to Patient format
-          const userData = response.data;
+        // Get patient details
+        const patientResponse = await apiService.getPatientDetails(patientId);
+        if (patientResponse.success && patientResponse.data) {
+          const userData = patientResponse.data;
+          
+          // Try to get appointment details to get the reason
+          let appointmentReason = 'Not specified';
+          let patientAge: number | undefined;
+          
+          try {
+            // Get the current appointment for this patient
+            const appointmentsResponse = await apiService.getDoctorQueue() as { success: boolean; data: unknown[] };
+            if (appointmentsResponse?.success && Array.isArray(appointmentsResponse.data)) {
+              const currentAppointment = appointmentsResponse.data.find(
+                (queueEntry: unknown) => {
+                  const entry = queueEntry as { appointment?: { patient?: { id?: string }; reason?: string } };
+                  return entry.appointment?.patient?.id === patientId;
+                }
+              );
+              if (currentAppointment && typeof currentAppointment === 'object' && 'appointment' in currentAppointment) {
+                const appointment = (currentAppointment as { appointment: { reason?: string } }).appointment;
+                if (appointment?.reason) {
+                  appointmentReason = appointment.reason;
+                }
+              }
+            }
+          } catch (appointmentError) {
+            console.warn('Could not fetch appointment reason:', appointmentError);
+          }
+          
+          // Calculate age from date of birth
+          if (userData.dateOfBirth) {
+            const birthDate = new Date(userData.dateOfBirth);
+            const today = new Date();
+            const age = today.getFullYear() - birthDate.getFullYear();
+            const monthDiff = today.getMonth() - birthDate.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+              patientAge = age - 1;
+            } else {
+              patientAge = age;
+            }
+          }
+          
           const patientData: Patient = {
             id: userData.id,
             name: userData.fullName,
@@ -50,8 +89,9 @@ const PatientDetailsViewer: React.FC<PatientDetailsViewerProps> = ({
             status: 'Waiting',
             registeredTime: new Date(),
             department: userData.department || 'General',
-            reason: 'Not specified',
+            reason: appointmentReason,
             checkInTime: new Date().toISOString(),
+            age: patientAge,
             gender: userData.gender,
             contactNumber: userData.phoneNumber,
             notes: ''  // Default empty notes

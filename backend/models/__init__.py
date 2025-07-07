@@ -168,6 +168,7 @@ class Queue(Base):
     patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=True)
     doctor_id = Column(UUID(as_uuid=True), ForeignKey("doctors.id"), nullable=True)
     queue_number = Column(Integer, nullable=False)
+    queue_identifier = Column(String(4), nullable=True)  # 4-character random identifier
     priority_score = Column(Integer, default=0)
     status = Column(SQLEnum(QueueStatus), default=QueueStatus.WAITING)
     estimated_wait_time = Column(Integer, nullable=True)  # in minutes
