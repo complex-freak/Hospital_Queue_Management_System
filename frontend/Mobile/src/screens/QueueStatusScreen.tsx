@@ -49,6 +49,7 @@ const QueueStatusScreen = () => {
     useEffect(() => {
         if (queueState.appointment?.createdAt) {
             const updateTime = () => {
+                if (!queueState.appointment?.createdAt) return;
                 const createdAt = new Date(queueState.appointment.createdAt);
                 const now = new Date();
                 const diffInMinutes = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60));
@@ -79,38 +80,33 @@ const QueueStatusScreen = () => {
                 return;
             }
 
-            // Get the active appointment
-            const appointmentId = queueState.appointment.id;
-            
             // Make authenticated API calls
             await makeAuthenticatedRequest(async () => {
-                // Get appointment details with queue status included
-                const appointmentResponse = await appointmentService.getAppointmentById(appointmentId);
+                // Get queue status directly from the queue-status endpoint
+                const queueStatusResponse = await appointmentService.getQueueStatus();
                 
-                if (appointmentResponse.isSuccess && appointmentResponse.data) {
-                    const appointment = appointmentService.transformAppointmentData(
-                        appointmentResponse.data
-                    );
+                console.log('Queue Status Response:', JSON.stringify(queueStatusResponse, null, 2));
+                
+                if (queueStatusResponse.isSuccess && queueStatusResponse.data) {
+                    const queueData = queueStatusResponse.data;
                     
-                    // Get general queue status for the patient
-                    const queueStatusResponse = await appointmentService.getQueueStatus();
-                    
-                    let queueStatus = null;
-                    if (queueStatusResponse.isSuccess && queueStatusResponse.data) {
-                        queueStatus = queueStatusResponse.data;
-                    }
-                    
-                    setQueueData({
-                        queueNumber: appointment.queue_number || 0,
-                        queueIdentifier: appointment.queue_identifier || '',
-                        currentPosition: appointment.currentPosition || 0,
-                        totalInQueue: queueStatus?.total_in_queue || 0,
-                        doctorName: appointment.doctorName || t('awaitingDoctor'),
-                        estimatedTime: appointment.estimatedTime || 0,
+                    const finalQueueData = {
+                        queueNumber: queueData.your_number || 0,
+                        queueIdentifier: queueData.queue_identifier || '',
+                        currentPosition: queueData.queue_position || 0,
+                        totalInQueue: queueData.total_in_queue || 0,
+                        doctorName: queueData.doctor_name || t('awaitingDoctor'),
+                        estimatedTime: queueData.estimated_wait_time || 0,
                         department: t('generalPractice'),
-                        appointmentTime: appointment.createdAt ? new Date(appointment.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '',
-                        status: getStatusText(appointment.status)
-                    });
+                        appointmentTime: queueState.appointment?.createdAt ? new Date(queueState.appointment.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '',
+                        status: getStatusText(queueData.status)
+                    };
+                    
+                    console.log('Final Queue Data:', JSON.stringify(finalQueueData, null, 2));
+                    
+                    setQueueData(finalQueueData);
+                } else {
+                    console.log('Queue status response not successful:', queueStatusResponse);
                 }
             }, () => {
                 // Handle auth error
@@ -146,6 +142,25 @@ const QueueStatusScreen = () => {
             default:
                 return t('waiting');
         }
+    };
+
+    // Format position number with ordinal suffix
+    const formatPosition = (position: number): string => {
+        if (position === 0) return '0';
+        
+        const j = position % 10;
+        const k = position % 100;
+        
+        if (j === 1 && k !== 11) {
+            return position + 'st';
+        }
+        if (j === 2 && k !== 12) {
+            return position + 'nd';
+        }
+        if (j === 3 && k !== 13) {
+            return position + 'rd';
+        }
+        return position + 'th';
     };
 
     // Get status color
@@ -244,14 +259,14 @@ const QueueStatusScreen = () => {
                         </View>
 
                         <View style={styles.positionContainer}>
-                            <Text style={styles.positionValue}>{queueData.currentPosition}</Text>
+                            <Text style={styles.positionValue}>{formatPosition(queueData.currentPosition)}</Text>
                             <Text style={styles.positionLabel}>{t('currentPosition')}</Text>
                         </View>
                     </View>
 
                     {/* Estimated Time Card */}
                     <View style={styles.card}>
-                        <View style={styles.cardHeader}>
+                        {/* <View style={styles.cardHeader}>
                             <Ionicons name="time-outline" size={22} color={COLORS.primary} />
                             <Text style={styles.cardTitle}>{t('estimatedTime')}</Text>
                         </View>
@@ -259,7 +274,7 @@ const QueueStatusScreen = () => {
                         <View style={styles.timeContainer}>
                             <Text style={styles.timeValue}>{queueData.estimatedTime}</Text>
                             <Text style={styles.timeUnit}>{t('minutes')}</Text>
-                        </View>
+                        </View> */}
 
                         {/* Time since appointment creation */}
                         <View style={styles.timeSinceContainer}>
@@ -304,7 +319,7 @@ const QueueStatusScreen = () => {
                                 </View>
                                 <View style={styles.queueInfoItem}>
                                     <Text style={styles.queueInfoLabel}>{t('yourPosition')}</Text>
-                                    <Text style={styles.queueInfoValue}>{queueData.currentPosition}</Text>
+                                    <Text style={styles.queueInfoValue}>{formatPosition(queueData.currentPosition)}</Text>
                                 </View>
                             </View>
                         </View>

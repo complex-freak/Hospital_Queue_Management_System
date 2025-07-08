@@ -80,10 +80,10 @@ const Login = () => {
           description: `Welcome back, ${values.username}!`,
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Login failed",
-        description: error.message || "Invalid username or password",
+        description: error instanceof Error ? error.message : "Invalid username or password",
         variant: "destructive",
       });
     } finally {
@@ -211,7 +211,7 @@ const Login = () => {
             </form>
           </Form>
         </CardContent>
-        <CardFooter className="text-center text-sm text-gray-500">
+        {/* <CardFooter className="text-center text-sm text-gray-500">
           <p className="w-full">
             {import.meta.env.DEV && (
               <>
@@ -222,7 +222,7 @@ const Login = () => {
               </>
             )}
           </p>
-        </CardFooter>
+        </CardFooter> */}
       </Card>
     </div>
   );

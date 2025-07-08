@@ -36,6 +36,11 @@ export interface AppointmentResponse {
   created_at: string;
   updated_at: string | null;
   version?: number;
+  // Queue information (added dynamically by backend)
+  queue_position?: number;
+  estimated_wait_time?: number;
+  queue_number?: number;
+  queue_identifier?: string;
   patient: {
     id: string;
     first_name: string;
@@ -619,10 +624,10 @@ class AppointmentService {
       dateOfBirth: apiData.patient.date_of_birth || '',
       phoneNumber: apiData.patient.phone_number,
       conditionType: conditionTypeMap[apiData.urgency] || 'normal',
-      queue_number: queueData?.your_number || 0,
-      queue_identifier: queueData?.queue_identifier || undefined,
-      currentPosition: queueData?.queue_position || 0,
-      estimatedTime: queueData?.estimated_wait_time || 0,
+      queue_number: apiData.queue_number || queueData?.your_number || 0,
+      queue_identifier: apiData.queue_identifier || queueData?.queue_identifier || undefined,
+      currentPosition: apiData.queue_position || queueData?.queue_position || 0,
+      estimatedTime: apiData.estimated_wait_time || queueData?.estimated_wait_time || 0,
       doctorName: queueData?.doctor_name || doctorName,
       createdAt: apiData.created_at,
       reasonForVisit: apiData.reason || undefined,

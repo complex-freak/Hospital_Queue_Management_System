@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import { useAuth } from './AuthContext';
 import { appointmentService } from '../services/api/appointments';
-import { makeAuthenticatedRequest } from '../hooks/useAuthenticatedAPI';
-import { Appointment, Gender, ConditionType } from '../types';
+import makeAuthenticatedRequest from '../hooks/useAuthenticatedAPI';
+import { Appointment, Gender, ConditionType, QueueState } from '../types';
 import pushNotificationService from '../services/notifications/pushNotificationService';
 import { format, addDays } from 'date-fns';
 import { AUTH_CONFIG } from '../config/env';
@@ -280,8 +280,8 @@ export const QueueProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 throw new Error('No active appointment found');
             }
 
-            // Call the queue status API for the current appointment
-            const queueResponse = await appointmentService.getQueueStatus(state.appointment.id);
+            // Call the queue status API (no parameters needed)
+            const queueResponse = await appointmentService.getQueueStatus();
             
             if (queueResponse.isSuccess && queueResponse.data) {
                 const currentPosition = queueResponse.data.queue_position;

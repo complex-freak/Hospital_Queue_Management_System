@@ -158,7 +158,9 @@ class QueueService:
                 # Try a simplified insert as a fallback
                 simplified_values = {
                     "appointment_id": appointment_id,
+                    "patient_id": appointment.patient_id,
                     "queue_number": next_queue_number,
+                    "queue_identifier": queue_identifier,
                     "priority_score": priority_score,
                     "status": "waiting",
                     "estimated_wait_time": estimated_wait_time
@@ -268,6 +270,7 @@ class QueueService:
         """Get current queue status for a patient"""
         try:
             logger.info(f"Getting patient queue status for patient: {patient_id}")
+            # First try to find by patient_id
             result = await db.execute(
                 select(Queue).where(
                     and_(
@@ -278,9 +281,25 @@ class QueueService:
                 )
             )
             queue_entry = result.scalars().first()
+            
+            # If not found by patient_id, try to find by appointment_id
+            if not queue_entry:
+                logger.info(f"No queue entry found by patient_id {patient_id}, trying by appointment_id")
+                result = await db.execute(
+                    select(Queue).join(Appointment).where(
+                        and_(
+                            Appointment.patient_id == patient_id,
+                            Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING]),
+                            func.date(column("created_at")) == date.today()
+                        )
+                    )
+                )
+                queue_entry = result.scalars().first()
             logger.info(f"Patient queue entry found: {queue_entry is not None}")
             if queue_entry:
-                logger.info(f"Queue entry details: id={queue_entry.id}, status={queue_entry.status}")
+                logger.info(f"Queue entry details: id={queue_entry.id}, status={queue_entry.status}, queue_number={queue_entry.queue_number}, queue_identifier={queue_entry.queue_identifier}")
+            else:
+                logger.warning(f"No queue entry found for patient {patient_id}")
             return queue_entry
         except Exception as e:
             logger.error(f"Error in get_patient_queue_status for patient {patient_id}: {str(e)}", exc_info=True)
@@ -310,7 +329,13 @@ class QueueService:
                 select(func.count(Queue.id)).where(
                     and_(
                         Queue.status == QueueStatus.WAITING,
-                        Queue.priority_score > queue_entry.priority_score,
+                        or_(
+                            Queue.priority_score > queue_entry.priority_score,
+                            and_(
+                                Queue.priority_score == queue_entry.priority_score,
+                                Queue.queue_number < queue_entry.queue_number
+                            )
+                        ),
                         func.date(Queue.created_at) == func.date(queue_entry.created_at)
                     )
                 )
@@ -374,6 +399,7 @@ class QueueService:
                 "doctor_name": doctor_name
             }
             logger.info(f"Queue status response: {response}")
+            logger.info(f"Queue entry details - queue_number: {queue_entry.queue_number}, queue_identifier: {queue_entry.queue_identifier}")
             return response
             
         except Exception as e:

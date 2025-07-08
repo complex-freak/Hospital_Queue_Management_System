@@ -22,6 +22,7 @@ import { useQueue } from '../context/QueueContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { Appointment } from '../types';
 import { useAuthenticatedAPI } from '../hooks/useAuthenticatedAPI';
+import { appointmentService } from '../services';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -37,6 +38,15 @@ const HomeScreen: React.FC = () => {
         appointments: '0',
         queuePosition: '0',
         notifications: '0',
+    });
+    const [queueStats, setQueueStats] = useState({
+        queueNumber: '-',
+        queueIdentifier: '',
+        currentPosition: '-',
+        totalInQueue: '-',
+        doctorName: '',
+        estimatedTime: '-',
+        status: '',
     });
     const [loading, setLoading] = useState(true);
 
@@ -55,18 +65,42 @@ const HomeScreen: React.FC = () => {
                 return;
             }
             
-            // Get appointments from API with authentication
             await makeAuthenticatedRequest(async () => {
                 const appointments = await getAppointments();
                 
                 // Calculate stats
                 const activeAppointments = appointments.filter(
-                    a => a.status === 'waiting' || a.status === 'ongoing' || a.status === 'scheduled'
+                    a => a.status === 'waiting' || a.status === 'in_progress' || a.status === 'scheduled'
                 );
                 
-                // Find the current queue position
-                const waitingAppointment = appointments.find(a => a.status === 'waiting');
-                const queuePosition = waitingAppointment ? waitingAppointment.currentPosition.toString() : '0';
+                // Fetch queue status from backend
+                let queueStatsData = {
+                    queueNumber: '-',
+                    queueIdentifier: '',
+                    currentPosition: '-',
+                    totalInQueue: '-',
+                    doctorName: '',
+                    estimatedTime: '-',
+                    status: '',
+                };
+                try {
+                    const queueStatusResponse = await appointmentService.getQueueStatus();
+                    if (queueStatusResponse.isSuccess && queueStatusResponse.data) {
+                        const q = queueStatusResponse.data;
+                        queueStatsData = {
+                            queueNumber: q.your_number?.toString() ?? '-',
+                            queueIdentifier: q.queue_identifier ?? '',
+                            currentPosition: q.queue_position?.toString() ?? '-',
+                            totalInQueue: q.total_in_queue?.toString() ?? '-',
+                            doctorName: q.doctor_name ?? '',
+                            estimatedTime: q.estimated_wait_time?.toString() ?? '-',
+                            status: q.status ?? '',
+                        };
+                    }
+                } catch (e) {
+                    console.log('Failed to fetch queue status:', e);
+                }
+                setQueueStats(queueStatsData);
                 
                 // Count unread notifications
                 const unreadNotifications = notificationState.notifications.filter(n => !n.read).length;
@@ -74,7 +108,7 @@ const HomeScreen: React.FC = () => {
                 // Update stats
                 setStats({
                     appointments: activeAppointments.length.toString(),
-                    queuePosition: queuePosition,
+                    queuePosition: queueStatsData.currentPosition,
                     notifications: unreadNotifications.toString(),
                 });
             }, () => {
@@ -196,15 +230,33 @@ const HomeScreen: React.FC = () => {
             <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
                 {/* Stats Dashboard */}
                 <View style={styles.statsContainer}>
-                    {statsItems.map((stat) => (
-                        <View key={stat.id} style={styles.statCard}>
-                            <View style={[styles.statIconContainer, { backgroundColor: stat.color + '15' }]}>
-                                <Ionicons name={stat.icon as any} size={22} color={stat.color} />
-                            </View>
-                            <Text style={styles.statValue}>{stat.value}</Text>
-                            <Text style={styles.statTitle}>{stat.title}</Text>
+                    <View style={styles.statCard}>
+                        <View style={[styles.statIconContainer, { backgroundColor: COLORS.primary + '15' }]}> 
+                            <Ionicons name={'calendar'} size={22} color={COLORS.primary} />
                         </View>
-                    ))}
+                        <Text style={styles.statValue}>{stats.appointments}</Text>
+                        <Text style={styles.statTitle}>{t('appointments')}</Text>
+                    </View>
+                    <View style={styles.statCard}>
+                        <View style={[styles.statIconContainer, { backgroundColor: COLORS.warning + '15' }]}> 
+                            <Ionicons name={'time'} size={22} color={COLORS.warning} />
+                        </View>
+                        <Text style={styles.statValue}>{queueStats.currentPosition}</Text>
+                        <Text style={styles.statTitle}>{t('queuePosition')}</Text>
+                        {/* {queueStats.queueIdentifier ? (
+                            <Text style={styles.statTitle}>{t('queueIdentifier')}: {queueStats.queueIdentifier}</Text>
+                        ) : null}
+                        {queueStats.totalInQueue !== '-' ? (
+                            <Text style={styles.statTitle}>{t('totalInQueue')}: {queueStats.totalInQueue}</Text>
+                        ) : null} */}
+                    </View>
+                    <View style={styles.statCard}>
+                        <View style={[styles.statIconContainer, { backgroundColor: COLORS.info + '15' }]}> 
+                            <Ionicons name={'notifications'} size={22} color={COLORS.info} />
+                        </View>
+                        <Text style={styles.statValue}>{stats.notifications}</Text>
+                        <Text style={styles.statTitle}>{t('notifications')}</Text>
+                    </View>
                 </View>
 
                 {/* Main cards */}

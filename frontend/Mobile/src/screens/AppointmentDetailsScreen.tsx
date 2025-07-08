@@ -25,12 +25,7 @@ import useAuthenticatedAPI from '../hooks/useAuthenticatedAPI';
 import { Appointment } from '../types';
 
 // Add this interface near the top of the file
-interface AppointmentResponseWithQueue {
-    queue_position?: number;
-    estimated_wait_time?: number;
-    queue_number?: number;
-    [key: string]: any;
-}
+
 
 type AppointmentDetailsRouteProp = RouteProp<RootStackParamList, 'AppointmentDetails'>;
 type AppointmentDetailsNavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -74,17 +69,7 @@ const AppointmentDetailsScreen: React.FC = () => {
                     const response = await appointmentService.getAppointmentById(appointmentId);
                     
                     if (response.isSuccess && response.data) {
-                        const appointmentData = appointmentService.transformAppointmentData(
-                            response.data,
-                            (response.data as AppointmentResponseWithQueue).queue_position ? {
-                                queue_position: (response.data as AppointmentResponseWithQueue).queue_position!,
-                                estimated_wait_time: (response.data as AppointmentResponseWithQueue).estimated_wait_time || null,
-                                current_serving: null,
-                                total_in_queue: 0,
-                                your_number: (response.data as AppointmentResponseWithQueue).queue_number || 0,
-                                status: 'WAITING'
-                            } : undefined
-                        );
+                        const appointmentData = appointmentService.transformAppointmentData(response.data);
                         setAppointment(appointmentData);
                     } else {
                         Alert.alert(

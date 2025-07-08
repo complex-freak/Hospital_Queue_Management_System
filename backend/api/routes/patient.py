@@ -365,19 +365,39 @@ async def get_appointment_details(
         if appointment.created_at is None:
             appointment.created_at = appointment.appointment_date or datetime.now()
             
-                    # If appointment is in waiting status and include_queue_status is True, 
-            # get the current queue status
-            if include_queue_status and appointment.status == "WAITING":
-                try:
-                    queue_status = await QueueService.get_queue_status(db, UUID(appointment_id))
-                    # We'll return this as part of the response in the schema
-                    appointment.queue_position = queue_status["queue_position"] if queue_status else None
-                    appointment.estimated_wait_time = queue_status["estimated_wait_time"] if queue_status else None
-                    appointment.queue_number = queue_status["your_number"] if queue_status else None
-                except Exception as e:
-                    logging.error(f"Failed to get queue status for appointment: {str(e)}")
-                    # Don't fail the whole request if queue status fails
-                    pass
+        # If include_queue_status is True, get the current queue status
+        # Check for appointments that are scheduled and have a queue entry
+        logging.info(f"Checking queue status - appointment status: {appointment.status} (type: {type(appointment.status)})")
+        logging.info(f"AppointmentStatus.SCHEDULED: {AppointmentStatus.SCHEDULED} (type: {type(AppointmentStatus.SCHEDULED)})")
+        logging.info(f"AppointmentStatus.WAITING: {AppointmentStatus.WAITING} (type: {type(AppointmentStatus.WAITING)})")
+        
+        # Check if appointment status matches either SCHEDULED or WAITING
+        # Convert both to strings for comparison to handle potential type mismatches
+        appointment_status_str = str(appointment.status).lower()
+        status_matches = appointment_status_str in ["scheduled", "waiting"]
+        
+        logging.info(f"Appointment status check - status: {appointment.status}, status_str: {appointment_status_str}, matches: {status_matches}")
+        
+        if include_queue_status and status_matches:
+            try:
+                logging.info(f"Getting queue status for patient {current_patient.id} and appointment {appointment_id}")
+                logging.info(f"Appointment status: {appointment.status}")
+                queue_status = await QueueService.get_queue_status(db, current_patient.id)
+                logging.info(f"Queue status result: {queue_status}")
+                
+                # We'll return this as part of the response in the schema
+                appointment.queue_position = queue_status["queue_position"] if queue_status else None
+                appointment.estimated_wait_time = queue_status["estimated_wait_time"] if queue_status else None
+                appointment.queue_number = queue_status["your_number"] if queue_status else None
+                appointment.queue_identifier = queue_status["queue_identifier"] if queue_status else None
+                
+                logging.info(f"Appointment queue data - position: {appointment.queue_position}, number: {appointment.queue_number}, identifier: {appointment.queue_identifier}")
+            except Exception as e:
+                logging.error(f"Failed to get queue status for appointment: {str(e)}")
+                # Don't fail the whole request if queue status fails
+                pass
+        else:
+            logging.info(f"Skipping queue status for appointment {appointment_id} with status {appointment.status}")
             
         return appointment
         

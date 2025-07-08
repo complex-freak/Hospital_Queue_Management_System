@@ -245,6 +245,7 @@ class Appointment(AppointmentBase, BaseSchema):
     queue_position: Optional[int] = None
     estimated_wait_time: Optional[int] = None
     queue_number: Optional[int] = None
+    queue_identifier: Optional[str] = None
 
 
 # Queue schemas
