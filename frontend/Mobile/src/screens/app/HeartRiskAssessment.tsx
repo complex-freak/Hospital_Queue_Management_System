@@ -1,4 +1,4 @@
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, NavigationProp } from "@react-navigation/native";
 import React, { useState } from "react";
 import {
   View,
@@ -63,8 +63,36 @@ interface SelectOption {
   value: string;
 }
 
+// Define navigation types for stack and tabs
+type MainTabsParamList = {
+  HomeTab: undefined;
+  HealthDataTab: undefined;
+  ReportsTab: undefined;
+  NotificationsTab: undefined;
+  ProfileTab: undefined;
+};
+type RootStackParamList = {
+  MainTabs: { screen?: keyof MainTabsParamList } | undefined;
+  ReportDetail: undefined;
+  PDFViewer: undefined;
+  ReportSettings: undefined;
+  Appointments: undefined;
+  AppointmentDetail: undefined;
+  ClinicianRecommendations: undefined;
+  Health: undefined;
+  RiskVisualization: undefined;
+  RiskSettings: undefined;
+  RiskFactorDetail: undefined;
+  Recommendations: undefined;
+  Messages: undefined;
+  HeartRiskAssessment: undefined;
+  Login: undefined;
+  Registration: undefined;
+  ForgotPassword: undefined;
+};
+
 const HeartRiskAssessment: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [modalVisible, setModalVisible] = useState<boolean>(true);
   const [diseaseSelectionVisible, setDiseaseSelectionVisible] =
     useState<boolean>(true);
@@ -498,8 +526,8 @@ const HeartRiskAssessment: React.FC = () => {
 
   const assessRisk = async () => {
     let isValid = false;
-    let riskData;
-    let probability;
+    let riskData: ReturnType<typeof getRiskLevel> | undefined;
+    let probability: number | undefined;
     let riskFactors: string[] = [];
 
     if (selectedDisease === "coronary") {
@@ -520,7 +548,7 @@ const HeartRiskAssessment: React.FC = () => {
       }
     }
 
-    if (!isValid) {
+    if (!isValid || !riskData || probability === undefined) {
       return;
     }
 
@@ -583,7 +611,7 @@ const HeartRiskAssessment: React.FC = () => {
           text: "Close",
           onPress: () => {
             setModalVisible(false);
-            navigation.navigate("HomeTab" as never);
+            navigation.navigate("MainTabs", { screen: "HomeTab" });
           },
         },
         { text: "Retake", onPress: resetForm },
@@ -788,7 +816,7 @@ const HeartRiskAssessment: React.FC = () => {
         style={[styles.button, styles.cancelButton]}
         onPress={() => {
           setModalVisible(false);
-          navigation.navigate("HomeTab" as never);
+          navigation.navigate("MainTabs", { screen: "HomeTab" } as never);
         }}
         accessibilityLabel="Cancel assessment"
         accessibilityRole="button"
@@ -905,7 +933,7 @@ const HeartRiskAssessment: React.FC = () => {
                     style={styles.closeButton}
                     onPress={() => {
                       setModalVisible(false);
-                      navigation.navigate("HomeTab" as never);
+                      navigation.navigate("MainTabs", { screen: "HomeTab" });
                     }}
                     accessibilityLabel="Close assessment"
                     accessibilityRole="button"
@@ -949,7 +977,7 @@ const HeartRiskAssessment: React.FC = () => {
                       style={[styles.button, styles.cancelButton]}
                       onPress={() => {
                         setModalVisible(false);
-                        navigation.navigate("HomeTab" as never);
+                        navigation.navigate("MainTabs", { screen: "HomeTab" });
                       }}
                       accessibilityLabel="Cancel assessment"
                       accessibilityRole="button"
