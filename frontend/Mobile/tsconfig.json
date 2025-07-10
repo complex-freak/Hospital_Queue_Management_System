@@ -1,6 +1,12 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true
+    "strict": true,
+    "types": ["hammerjs", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "../../../shared": ["../shared"],
+      "../../../shared/*": ["../shared/*"]
+    }
   }
 }
