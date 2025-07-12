@@ -1,7 +1,7 @@
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, desc, asc, insert
+from sqlalchemy import select, and_, func, desc, asc, insert, update
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
@@ -20,7 +20,7 @@ from schemas import (
     NotificationFromTemplate
 )
 from services.queue_service import QueueService
-from services import NotificationService
+from services.notification_service import NotificationService
 from services import AuthService, AppointmentService, PatientService
 from api.dependencies import require_staff, require_staff_or_doctor, log_audit_event
 from api.core.security import create_access_token
@@ -28,6 +28,9 @@ from api.core.config import settings
 from pydantic import BaseModel
 from utils.datetime_utils import get_timezone_aware_now
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -1416,19 +1419,24 @@ async def create_notification(
         notification = await notification_service.create_notification(db, notification_create)
         
         # Send notification based on type
-        if notification.type == NotificationType.SMS:
-            success = await NotificationService.send_sms_notification(
+        notification_type = getattr(notification, 'type', notification_create.type)
+        if notification_type == NotificationType.SMS:
+            success = await notification_service.send_sms(
                 notification.recipient,
-                notification.message
+                notification.message,
+                notification.id,
+                db
             )
-        elif notification.type == NotificationType.PUSH:
+            success = success.get('success', False)  # Extract success from result dict
+        elif notification_type == NotificationType.PUSH:
             # Get device token if patient_id is provided
-            if notification.patient_id:
+            patient_id = getattr(notification, 'patient_id', notification_create.patient_id)
+            if patient_id:
                 result = await db.execute(
                     select(DeviceToken)
                     .where(
                         and_(
-                            DeviceToken.patient_id == notification.patient_id,
+                            DeviceToken.patient_id == patient_id,
                             DeviceToken.is_active == True
                         )
                     )
@@ -1438,10 +1446,12 @@ async def create_notification(
                 device_token = result.scalar_one_or_none()
                 
                 if device_token:
+                    subject = getattr(notification, 'subject', notification_create.subject) or "Notification"
+                    message = getattr(notification, 'message', notification_create.message)
                     success = await NotificationService.send_push_notification(
                         device_token.token,
-                        notification.subject or "Notification",
-                        notification.message
+                        subject,
+                        message
                     )
                 else:
                     success = False
@@ -1454,10 +1464,26 @@ async def create_notification(
             success = True  # Assume success for now
         
         # Update notification status
-        notification.status = "sent" if success else "failed"
-        notification.sent_at = get_timezone_aware_now() if success else None
-        await db.commit()
-        await db.refresh(notification)
+        try:
+            notification.status = "sent" if success else "failed"
+            notification.sent_at = get_timezone_aware_now() if success else None
+            await db.commit()
+            await db.refresh(notification)
+        except Exception as e:
+            logger.error(f"Failed to update notification status: {e}")
+            # Try to update manually
+            try:
+                await db.execute(
+                    update(Notification)
+                    .where(Notification.id == notification.id)
+                    .values(
+                        status="sent" if success else "failed",
+                        sent_at=get_timezone_aware_now() if success else None
+                    )
+                )
+                await db.commit()
+            except Exception as update_error:
+                logger.error(f"Failed to manually update notification status: {update_error}")
         
         # Log audit event
         background_tasks.add_task(

@@ -13,7 +13,8 @@ from schemas import (
     AdminDashboardStats, AuditLog as AuditLogSchema,
     SystemAnalytics, Token, UserLogin, PatientCreate, PatientSchema
 )
-from services import AuthService, PatientService, NotificationService
+from services import AuthService, PatientService
+from services.notification_service import notification_service
 from services.queue_analytics import get_queue_analytics
 from services.appointment_analytics import get_appointment_analytics
 from services.doctor_analytics import get_doctor_analytics

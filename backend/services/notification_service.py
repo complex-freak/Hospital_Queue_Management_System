@@ -5,15 +5,10 @@ from uuid import UUID
 from datetime import datetime
 import asyncio
 import logging
+import aiohttp
 from fastapi import BackgroundTasks
 
-# Third-party imports (would need to be installed)
-try:
-    from twilio.rest import Client as TwilioClient  # type: ignore
-    from twilio.base.exceptions import TwilioException  # type: ignore
-except ImportError:
-    TwilioClient = None
-    TwilioException = Exception
+# SMS API imports
 
 try:
     from pyfcm import FCMNotification  # type: ignore
@@ -29,15 +24,12 @@ logger = logging.getLogger(__name__)
 
 class NotificationService:
     def __init__(self):
-        # Initialize Twilio client
-        if TwilioClient and getattr(settings, "TWILIO_ACCOUNT_SID", None) and getattr(settings, "TWILIO_AUTH_TOKEN", None):
-            self.twilio_client = TwilioClient(
-                getattr(settings, "TWILIO_ACCOUNT_SID", ""),
-                getattr(settings, "TWILIO_AUTH_TOKEN", "")
-            )
-        else:
-            self.twilio_client = None
-            logger.warning("Twilio not configured or twilio package not installed")
+        # Initialize SMS API configuration
+        self.sms_api_key = getattr(settings, "SMS_API_KEY", None)
+        self.sms_api_url = getattr(settings, "SMS_API_URL", "https://api.smsmobileapi.com/sendsms/")
+        
+        if not self.sms_api_key:
+            logger.warning("SMS_API_KEY not configured")
         
         # Initialize FCM client
         if FCMNotification and getattr(settings, "FIREBASE_SERVER_KEY", None):
@@ -47,8 +39,8 @@ class NotificationService:
             logger.warning("FCM not configured or pyfcm package not installed")
         
         # Log settings status
-        if settings.SMS_ENABLED and not self.twilio_client:
-            logger.warning("SMS_ENABLED=True but Twilio client not initialized")
+        if settings.SMS_ENABLED and not self.sms_api_key:
+            logger.warning("SMS_ENABLED=True but SMS_API_KEY not configured")
             
         if settings.PUSH_ENABLED and not self.fcm_client:
             logger.warning("PUSH_ENABLED=True but FCM client not initialized")
@@ -61,20 +53,27 @@ class NotificationService:
         """Create a notification record in database"""
         notification_values = {
             "patient_id": notification_data.patient_id,
-            "queue_id": getattr(notification_data, "queue_id", None),
-            "notification_type": getattr(notification_data, "notification_type", None),
-            "title": getattr(notification_data, "title", None),
+            "user_id": notification_data.user_id,
+            "type": notification_data.type,
+            "recipient": notification_data.recipient,
             "message": notification_data.message,
-            "channel": getattr(notification_data, "channel", "sms"),
-            "status": "PENDING",
-            "metadata": getattr(notification_data, "metadata", {})
+            "subject": notification_data.subject,
+            "reference_id": notification_data.reference_id,
+            "status": "pending"
         }
         
-        result = await db.execute(insert(Notification).values(**notification_values).returning(Notification))
-        notification = result.scalar_one()
+        result = await db.execute(insert(Notification).values(**notification_values).returning(Notification.id))
+        notification_id_row = result.first()
         await db.commit()
-        
-        return notification
+
+        # Fetch ORM instance by ID to ensure we return a proper model
+        notification_id = notification_id_row[0] if notification_id_row else None
+        if notification_id is not None:
+            result = await db.execute(select(Notification).where(Notification.id == notification_id))
+            notification = result.scalar_one_or_none()
+            return notification
+        else:
+            return None
     
     async def send_sms(
         self,
@@ -83,45 +82,54 @@ class NotificationService:
         notification_id: Optional[UUID] = None,
         db: Optional[AsyncSession] = None
     ) -> Dict[str, Any]:
-        """Send SMS notification via Twilio"""
-        if not self.twilio_client:
+        """Send SMS notification via SMS API"""
+        if not self.sms_api_key:
             result = {
                 'success': False,
-                'error': 'Twilio not configured',
-                'message_sid': None
+                'error': 'SMS API not configured',
+                'message_id': None
             }
         else:
             try:
-                # Ensure phone number is in E.164 format
-                if not phone_number.startswith('+'):
-                    phone_number = f"+{phone_number}"
-                
-                message_obj = self.twilio_client.messages.create(
-                    body=message,
-                    from_=getattr(settings, "TWILIO_PHONE_NUMBER", ""),
-                    to=phone_number
-                )
-                
-                result = {
-                    'success': True,
-                    'error': None,
-                    'message_sid': message_obj.sid
+                # Prepare payload for SMS API
+                payload = {
+                    "recipients": phone_number,
+                    "message": message,
+                    "apikey": self.sms_api_key
                 }
                 
-                logger.info(f"SMS sent successfully to {phone_number}, SID: {message_obj.sid}")
+                # Send SMS using aiohttp for async HTTP requests
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(self.sms_api_url, data=payload) as response:
+                        response_text = await response.text()
+                        
+                        if response.status == 200:
+                            result = {
+                                'success': True,
+                                'error': None,
+                                'message_id': f"sms_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+                            }
+                            logger.info(f"SMS sent successfully to {phone_number}, Response: {response_text}")
+                        else:
+                            result = {
+                                'success': False,
+                                'error': f"HTTP {response.status}: {response_text}",
+                                'message_id': None
+                            }
+                            logger.error(f"Failed to send SMS to {phone_number}: HTTP {response.status} - {response_text}")
                 
-            except TwilioException as e:
+            except aiohttp.ClientError as e:
                 result = {
                     'success': False,
-                    'error': str(e),
-                    'message_sid': None
+                    'error': f"Network error: {str(e)}",
+                    'message_id': None
                 }
-                logger.error(f"Failed to send SMS to {phone_number}: {e}")
+                logger.error(f"Network error sending SMS to {phone_number}: {e}")
             except Exception as e:
                 result = {
                     'success': False,
                     'error': f"Unexpected error: {str(e)}",
-                    'message_sid': None
+                    'message_id': None
                 }
                 logger.error(f"Unexpected error sending SMS to {phone_number}: {e}")
         

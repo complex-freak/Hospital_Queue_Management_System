@@ -72,6 +72,31 @@ export const notificationService = {
       };
     }
   },
+
+  // Send notification to patient (doctor endpoint)
+  sendDoctorNotification: async (patientId: string, message: string, subject?: string) => {
+    try {
+      const notificationData = {
+        message,
+        subject: subject || "Message from your doctor"
+      };
+      
+      const response = await api.post(`/doctor/patients/${patientId}/notify`, notificationData);
+      
+      return { 
+        success: true, 
+        message: 'Notification sent',
+        data: response.data
+      };
+    } catch (error: unknown) {
+      console.error('Error sending doctor notification:', error);
+      const apiError = error as ApiError;
+      return {
+        success: false,
+        error: apiError.response?.data?.detail || 'Failed to send notification'
+      };
+    }
+  },
   
   // Send notification to multiple patients
   sendBulkNotifications: async (patientIds: string[], message: string, type: 'sms' | 'email' | 'app' | 'all' = 'sms') => {

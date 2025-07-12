@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta
 
 from database import get_db
-from models import Patient, User, Doctor, Appointment, Queue, QueueStatus, UrgencyLevel, AppointmentStatus
+from models import Patient, User, Doctor, Appointment, Queue, QueueStatus, UrgencyLevel, AppointmentStatus, NotificationType
 from schemas import (
     Queue as QueueSchema, 
     Patient as PatientSchema,
@@ -23,7 +23,8 @@ from schemas import (
     DoctorProfileUpdate,
     Notification, NotificationCreate
 )
-from services import NotificationService, AuthService, DoctorService
+from services import AuthService, DoctorService
+from services.notification_service import notification_service
 from services.queue_service import QueueService
 from api.dependencies import require_doctor, log_audit_event
 from api.core.security import create_access_token
@@ -1391,7 +1392,6 @@ async def create_notification(
 ):
     """Create and send a notification (doctor access)"""
     try:
-        notification_service = NotificationService()
         notification = await notification_service.create_notification(db, notification_data)
         
         # Log audit event
@@ -1449,20 +1449,34 @@ async def notify_patient(
                 detail="Patient not found"
             )
         
-        # Create and send notification using static method
-        notification = await NotificationService.send_notification(
-            db=db,
-            user_id=patient_id,
-            title=notification_data.subject or "Message from your doctor",
+        # Create notification record for patient
+        notification_data_create = NotificationCreate(
+            type=NotificationType.SMS,
+            recipient=patient.phone_number,
             message=notification_data.message,
-            notification_type="doctor_message"
+            subject=notification_data.subject or "Message from your doctor",
+            patient_id=patient_id
         )
         
-        if not notification:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to send notification"
+        notification = await notification_service.create_notification(db, notification_data_create)
+        
+        # Send SMS notification
+        try:
+            sms_result = await notification_service.send_sms(
+                phone_number=patient.phone_number,
+                message=notification_data.message,
+                notification_id=notification.id,
+                db=db
             )
+            success = sms_result['success']
+        except Exception as sms_error:
+            logger.warning(f"SMS sending failed: {sms_error}")
+            success = False  # Mark as failed but don't crash the endpoint
+        
+        # Update notification status
+        notification.status = "sent" if success else "failed"
+        notification.sent_at = datetime.utcnow() if success else None
+        await db.commit()
         
         # Log audit event
         background_tasks.add_task(
@@ -1472,11 +1486,33 @@ async def notify_patient(
             user_type="user",
             action="create",
             resource="notification",
-            resource_id=notification,
+            resource_id=notification.id,
             details=f"Doctor sent notification to patient {patient_id}"
         )
         
-        return {"id": str(notification), "message": "Notification sent successfully"}
+        # Refresh the notification to ensure all attributes are loaded
+        await db.refresh(notification)
+        
+        # Convert to Pydantic schema to avoid MissingGreenlet issues
+        # Use a safer approach by creating a dict first
+        notification_dict = {
+            "id": notification.id,
+            "patient_id": notification.patient_id,
+            "user_id": notification.user_id,
+            "type": notification.type,
+            "recipient": notification.recipient,
+            "message": notification.message,
+            "subject": notification.subject,
+            "is_read": notification.is_read,
+            "sent_at": notification.sent_at,
+            "status": notification.status,
+            "error_message": notification.error_message,
+            "reference_id": notification.reference_id,
+            "created_at": notification.created_at,
+            "updated_at": notification.updated_at
+        }
+        
+        return Notification.model_validate(notification_dict)
         
     except ValueError as e:
         raise HTTPException(

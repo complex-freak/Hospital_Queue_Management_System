@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Loader } from '@/components/ui/loader';
-import { apiService } from '@/services/api';
+import { notificationService } from '@/services/api';
 import { toast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { BadgeCheck, SkipForward, Bell, FileText, ClipboardList, RefreshCw } from 'lucide-react';
@@ -156,15 +156,25 @@ const QueueTable: React.FC<QueueTableProps> = ({
     
     setIsSendingNotification(true);
     try {
-      await apiService.sendNotification(notificationPatient.id, notificationMessage);
-      toast({
-        title: "Notification Sent",
-        description: `Notification sent to ${notificationPatient.name}`,
-      });
-      setIsNotificationOpen(false);
-      setNotificationMessage('');
-      refreshQueue();
+      const response = await notificationService.sendDoctorNotification(
+        notificationPatient.id, 
+        notificationMessage,
+        "Message from your doctor"
+      );
+      
+      if (response.success) {
+        toast({
+          title: "Notification Sent",
+          description: `Notification sent to ${notificationPatient.name}`,
+        });
+        setIsNotificationOpen(false);
+        setNotificationMessage('');
+        refreshQueue();
+      } else {
+        throw new Error(response.error || 'Failed to send notification');
+      }
     } catch (error) {
+      console.error('Error sending notification:', error);
       toast({
         title: "Notification Failed",
         description: "Could not send notification. Please try again.",

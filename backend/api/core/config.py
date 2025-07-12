@@ -32,10 +32,9 @@ class Settings(BaseSettings):
     # CORS
     BACKEND_CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8080", "https://localhost:3000", "https://localhost:8080", "*"]
     
-    # Twilio
-    TWILIO_ACCOUNT_SID: Optional[str] = None
-    TWILIO_AUTH_TOKEN: Optional[str] = None
-    TWILIO_FROM_NUMBER: Optional[str] = None
+    # SMS API (replacing Twilio)
+    SMS_API_KEY: Optional[str] = None
+    SMS_API_URL: str = "https://api.smsmobileapi.com/sendsms/"
     SMS_ENABLED: bool = True
     
     # Firebase
