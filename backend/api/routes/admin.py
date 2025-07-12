@@ -32,7 +32,9 @@ async def login_admin(
     login_data: UserLogin,
     db: AsyncSession = Depends(get_db)
 ):
-    """Admin login"""
+    """Admin login (DEPRECATED: Use /auth/login instead)"""
+    import warnings
+    warnings.warn("This endpoint is deprecated. Use /auth/login for unified authentication.", DeprecationWarning)
     user = await AuthService.authenticate_user(
         db, login_data.username, login_data.password
     )

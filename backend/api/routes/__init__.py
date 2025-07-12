@@ -4,10 +4,12 @@ from .admin import router as admin_router
 from .doctor import router as doctor_router
 from .staff import router as staff_router
 from .notifications import router as notifications_router
+from .auth import router as auth_router
 
 router = APIRouter()
 
 router.include_router(health_router, prefix="/health", tags=["health"])
+router.include_router(auth_router, prefix="/auth", tags=["auth"])
 router.include_router(admin_router, prefix="/admin", tags=["admin"])
 router.include_router(doctor_router, prefix="/doctor", tags=["doctor"])
 router.include_router(staff_router, prefix="/staff", tags=["staff"])

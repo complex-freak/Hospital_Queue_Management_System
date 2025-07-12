@@ -8,7 +8,7 @@ import time
 from contextlib import asynccontextmanager
 
 from api.core.config import settings
-from api.routes import patient, staff, doctor, admin
+from api.routes import patient, staff, doctor, admin, router as api_router
 from api.routes.sync import router as sync_router
 from api.routes.notifications import router as notifications_router
 
@@ -114,29 +114,11 @@ async def root():
         "health": "/api/v1/health"
     }
 
-# Include routers with prefixes
+# Include API router (includes auth, admin, doctor, staff routes)
 app.include_router(
-    patient.router,
-    prefix=f"{settings.API_V1_STR}/patient",
-    tags=["Patients"]
-)
-
-app.include_router(
-    staff.router,
-    prefix=f"{settings.API_V1_STR}/staff",
-    tags=["Staff"]
-)
-
-app.include_router(
-    doctor.router,
-    prefix=f"{settings.API_V1_STR}/doctor",
-    tags=["Doctors"]
-)
-
-app.include_router(
-    admin.router,
-    prefix=f"{settings.API_V1_STR}/admin",
-    tags=["Admin"]
+    api_router,
+    prefix=f"{settings.API_V1_STR}",
+    tags=["API"]
 )
 
 app.include_router(

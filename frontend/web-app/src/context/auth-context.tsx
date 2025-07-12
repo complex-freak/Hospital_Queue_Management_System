@@ -7,9 +7,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  login: (username: string, password: string) => Promise<boolean>;
-  doctorLogin: (username: string, password: string) => Promise<boolean>;
-  receptionistLogin: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<{ success: boolean; userRole?: string }>;
   logout: () => Promise<void>;
   clearError: () => void;
   updateUser: (userData: Partial<User>) => void;
@@ -66,8 +64,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
   }, []);
   
-  // Login function for admin/staff
-  const login = async (username: string, password: string): Promise<boolean> => {
+  // Unified login function for all user types
+  const login = async (username: string, password: string): Promise<{ success: boolean; userRole?: string }> => {
     setIsLoading(true);
     setError(null);
     
@@ -82,75 +80,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem('userId', result.data.user.id);
         }
         
-        return true;
+        return { 
+          success: true, 
+          userRole: result.data.userRole 
+        };
       } else {
         setError(result.error || 'Login failed');
-        return false;
+        return { success: false };
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
       setError(errorMessage);
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  // Doctor login function
-  const doctorLogin = async (username: string, password: string): Promise<boolean> => {
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const result = await authService.doctorLogin({ username, password });
-      
-      if (result.success && result.data) {
-        setUser(result.data.user || null);
-        
-        // Store userId for reconnection if user exists
-        if (result.data.user?.id) {
-          localStorage.setItem('userId', result.data.user.id);
-        }
-        
-        return true;
-      } else {
-        setError(result.error || 'Login failed');
-        return false;
-      }
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  // Receptionist login function
-  const receptionistLogin = async (username: string, password: string): Promise<boolean> => {
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const result = await authService.receptionistLogin({ username, password });
-      
-      if (result.success && result.data) {
-        setUser(result.data.user || null);
-        
-        // Store userId for reconnection if user exists
-        if (result.data.user?.id) {
-          localStorage.setItem('userId', result.data.user.id);
-        }
-        
-        return true;
-      } else {
-        setError(result.error || 'Login failed');
-        return false;
-      }
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return false;
+      return { success: false };
     } finally {
       setIsLoading(false);
     }
@@ -209,8 +150,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading,
     error,
     login,
-    doctorLogin,
-    receptionistLogin,
     logout,
     clearError,
     updateUser,

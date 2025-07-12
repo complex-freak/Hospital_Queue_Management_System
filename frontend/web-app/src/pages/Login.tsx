@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/form';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader } from '@/components/ui/loader';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from '@/hooks/use-toast';
 
@@ -32,11 +32,10 @@ const formSchema = z.object({
 });
 
 const Login = () => {
-  const { login, doctorLogin, receptionistLogin, isLoading, error, clearError } = useAuth();
+  const { login, isLoading, error, clearError } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<'doctor' | 'receptionist' | 'admin'>('doctor');
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -51,30 +50,25 @@ const Login = () => {
     clearError?.();
     
     try {
-      let success = false;
+      const result = await login(values.username, values.password);
       
-      switch (selectedRole) {
-        case 'doctor':
-          success = await doctorLogin(values.username, values.password);
-          if (success) navigate('/doctor/dashboard');
-          break;
-          
-        case 'receptionist':
-          success = await receptionistLogin(values.username, values.password);
-          if (success) navigate('/receptionist/dashboard');
-          break;
-          
-        case 'admin':
-          success = await login(values.username, values.password);
-          if (success) navigate('/admin/dashboard');
-          break;
-          
-        default:
-          success = await login(values.username, values.password);
-          if (success) navigate('/admin/dashboard');
-      }
-      
-      if (success) {
+      if (result.success) {
+        // Redirect based on user role
+        switch (result.userRole) {
+          case 'doctor':
+            navigate('/doctor/dashboard');
+            break;
+          case 'receptionist':
+          case 'staff':
+            navigate('/receptionist/dashboard');
+            break;
+          case 'admin':
+            navigate('/admin/dashboard');
+            break;
+          default:
+            navigate('/admin/dashboard'); // Default fallback
+        }
+        
         toast({
           title: "Login successful",
           description: `Welcome back, ${values.username}!`,
@@ -112,35 +106,12 @@ const Login = () => {
             </Alert>
           )}
           
-          <Tabs 
-            defaultValue="doctor" 
-            className="mb-6"
-            onValueChange={(value) => {
-              setSelectedRole(value as 'doctor' | 'receptionist' | 'admin');
-              clearError?.();
-            }}
-          >
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="doctor">Doctor</TabsTrigger>
-              <TabsTrigger value="receptionist">Receptionist</TabsTrigger>
-              <TabsTrigger value="admin">Admin</TabsTrigger>
-            </TabsList>
-            <TabsContent value="doctor">
-              <p className="text-sm text-gray-500 mt-2">
-                Login as a doctor to manage your patient queue and consultations.
-              </p>
-            </TabsContent>
-            <TabsContent value="receptionist">
-              <p className="text-sm text-gray-500 mt-2">
-                Login as a receptionist to register patients and manage the hospital queue.
-              </p>
-            </TabsContent>
-            <TabsContent value="admin">
-              <p className="text-sm text-gray-500 mt-2">
-                Login as an administrator to access analytics, user management, and system settings.
-              </p>
-            </TabsContent>
-          </Tabs>
+          <div className="mb-6">
+            <p className="text-sm text-gray-500 text-center">
+              Enter your credentials to access the hospital management system. 
+              You will be automatically redirected to your appropriate dashboard based on your role.
+            </p>
+          </div>
           
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -152,13 +123,7 @@ const Login = () => {
                     <FormLabel>{t('username')}</FormLabel>
                     <FormControl>
                       <Input 
-                        placeholder={
-                          selectedRole === 'doctor' 
-                            ? "doctor" 
-                            : selectedRole === 'receptionist'
-                              ? "receptionist"
-                              : "admin"
-                        } 
+                        placeholder="Enter your username" 
                         {...field} 
                         disabled={isSubmitting || isLoading} 
                       />
