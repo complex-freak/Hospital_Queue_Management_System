@@ -620,12 +620,12 @@ async def get_system_analytics(
         # Urgency level distribution
         urgency_distribution = await db.execute(
             select(
-                column("urgency"),
+                Appointment.urgency,
                 func.count(Appointment.id).label('count')
             )
             .select_from(Appointment)
             .where(Appointment.created_at >= start_date)
-            .group_by(column("urgency"))
+            .group_by(Appointment.urgency)
         )
         
         return SystemAnalytics(

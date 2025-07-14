@@ -48,7 +48,7 @@ class QueueService:
             result = await db.execute(
                 select(Queue).where(
                     and_(
-                        column("appointment_id") == appointment_id,
+                        Queue.appointment_id == appointment_id,
                         Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING])
                     )
                 )
@@ -60,8 +60,8 @@ class QueueService:
             # Get next queue number for the day
             today = date.today()
             result = await db.execute(
-                select(func.max(column("queue_number"))).select_from(Queue).where(
-                    func.date(column("created_at")) == today
+                select(func.max(Queue.queue_number)).select_from(Queue).where(
+                    func.date(Queue.created_at) == today
                 )
             )
             max_queue_number = result.scalar() or 0
@@ -238,14 +238,14 @@ class QueueService:
         query = select(Queue).where(
             and_(
                 Queue.status == QueueStatus.WAITING,
-                func.date(column("created_at")) == date.today()
+                func.date(Queue.created_at) == date.today()
             )
         )
         
         if doctor_id:
-            query = query.where(column("doctor_id") == doctor_id)
+            query = query.where(Queue.doctor_id == doctor_id)
         
-        result = await db.execute(query.order_by(column("priority_score").desc()))
+        result = await db.execute(query.order_by(Queue.priority_score.desc()))
         waiting_queue = result.scalars().all()
         
         # Estimate 15 minutes per patient (configurable)
@@ -274,9 +274,9 @@ class QueueService:
             result = await db.execute(
                 select(Queue).where(
                     and_(
-                        column("patient_id") == patient_id,
+                        Queue.patient_id == patient_id,
                         Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING]),
-                        func.date(column("created_at")) == date.today()
+                        func.date(Queue.created_at) == date.today()
                     )
                 )
             )
@@ -290,7 +290,7 @@ class QueueService:
                         and_(
                             Appointment.patient_id == patient_id,
                             Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING]),
-                            func.date(column("created_at")) == date.today()
+                            func.date(Queue.created_at) == date.today()
                         )
                     )
                 )
@@ -516,12 +516,12 @@ class QueueService:
         result = await db.execute(
             select(Queue).where(
                 and_(
-                    column("doctor_id") == doctor_id,
-                    func.date(column("created_at")) == target_date,
+                    Queue.doctor_id == doctor_id,
+                    func.date(Queue.created_at) == target_date,
                     Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING])
                 )
             )
-            .order_by(column("priority_score").desc(), column("created_at").asc())
+            .order_by(Queue.priority_score.desc(), Queue.created_at.asc())
             .offset(skip)
             .limit(limit)
         )
@@ -538,14 +538,14 @@ class QueueService:
         """Get all queue entries"""
         target_date = queue_date or date.today()
         
-        query = select(Queue).where(func.date(column("created_at")) == target_date)
+        query = select(Queue).where(func.date(Queue.created_at) == target_date)
         
         if status:
             query = query.where(Queue.status == status)
         else:
             query = query.where(Queue.status.in_([QueueStatus.WAITING, QueueStatus.SERVING]))
         
-        query = query.order_by(column("priority_score").desc(), column("created_at").asc()).offset(skip).limit(limit)
+        query = query.order_by(Queue.priority_score.desc(), Queue.created_at.asc()).offset(skip).limit(limit)
         
         result = await db.execute(query)
         return result.scalars().all()
@@ -601,12 +601,12 @@ class QueueService:
             result = await db.execute(
                 select(Queue).where(
                     and_(
-                        column("doctor_id") == doctor_id,
+                        Queue.doctor_id == doctor_id,
                         Queue.status == QueueStatus.WAITING,
-                        func.date(column("created_at")) == date.today()
+                        func.date(Queue.created_at) == date.today()
                     )
                 )
-                .order_by(column("priority_score").desc(), column("created_at").asc())
+                .order_by(Queue.priority_score.desc(), Queue.created_at.asc())
                 .limit(1)
             )
             next_patient = result.scalar_one_or_none()
@@ -715,10 +715,10 @@ class QueueService:
         target_date = queue_date or date.today()
         
         # Base query
-        base_query = select(Queue).where(func.date(column("created_at")) == target_date)
+        base_query = select(Queue).where(func.date(Queue.created_at) == target_date)
         
         if doctor_id:
-            base_query = base_query.where(column("doctor_id") == doctor_id)
+            base_query = base_query.where(Queue.doctor_id == doctor_id)
         
         # Total patients
         result = await db.execute(
